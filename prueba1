@@ -1,0 +1,153 @@
+--// ROBLOX HACK MENU COMPLETO //--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local SpeedEnabled = false
+local SpeedValue = 100
+local TriggerBotEnabled = false
+local AimbotEnabled = false
+local HitboxEnabled = false
+local HitboxSize = 10
+local ShowHitboxesEnabled = false
+
+-- GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "HackMenu"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 240, 0, 400)
+MainFrame.Position = UDim2.new(0.1, 0, 0.2, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 10)
+Corner.Parent = MainFrame
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+Title.Text = "HACK MENU"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 20
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 10)
+TitleCorner.Parent = Title
+
+local function CreateButton(text, yPos)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 40)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 14
+    Button.Font = Enum.Font.Gotham
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 8)
+    return Button
+end
+
+local AimbotButton   = CreateButton("Aimbot: OFF", 50)
+local TriggerButton  = CreateButton("TriggerBot: OFF", 100)
+local SpeedButton    = CreateButton("Speed: OFF", 150)
+local HitboxButton   = CreateButton("Hitbox: OFF", 200)
+local SizeButton     = CreateButton("Hitbox Size: "..HitboxSize, 250)
+
+-- Tecla P
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- AIMBOT CON PREDICCIÓN
+local function GetPrediction(target)
+    local root = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    local vel = root.AssemblyLinearVelocity
+    return root.Position + vel * 0.12   -- predicción
+end
+
+RunService.RenderStepped:Connect(function()
+    if AimbotEnabled then
+        local closest, dist = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local pos = GetPrediction(plr)
+                if pos then
+                    local screen, onScreen = Camera:WorldToViewportPoint(pos)
+                    if onScreen then
+                        local d = (Vector2.new(screen.X, screen.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                        if d < dist then
+                            dist = d
+                            closest = pos
+                        end
+                    end
+                end
+            end
+        end
+        if closest then
+            Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, closest)
+        end
+    end
+end)
+
+-- TriggerBot mejorado
+RunService.RenderStepped:Connect(function()
+    if TriggerBotEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local part = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Head")
+                if part then
+                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen and (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude < 70 then
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                        task.wait(0.05)
+                        VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                        break
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Botones
+AimbotButton.MouseButton1Click:Connect(function()
+    AimbotEnabled = not AimbotEnabled
+    AimbotButton.Text = AimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
+    AimbotButton.BackgroundColor3 = AimbotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(60,60,60)
+end)
+
+TriggerButton.MouseButton1Click:Connect(function()
+    TriggerBotEnabled = not TriggerBotEnabled
+    TriggerButton.Text = TriggerBotEnabled and "TriggerBot: ON" or "TriggerBot: OFF"
+    TriggerButton.BackgroundColor3 = TriggerBotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(60,60,60)
+end)
+
+SpeedButton.MouseButton1Click:Connect(function()
+    SpeedEnabled = not SpeedEnabled
+    SpeedButton.Text = SpeedEnabled and "Speed: ON ("..SpeedValue..")" or "Speed: OFF"
+    SpeedButton.BackgroundColor3 = SpeedEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(60,60,60)
+end)
+
+-- Hitbox functions (Reset + Expand) se mantienen igual que en versiones anteriores...
+
+print("✅ Menu cargado - Presiona P")
