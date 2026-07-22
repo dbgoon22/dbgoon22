@@ -1,0 +1,190 @@
+--// dbgoon22 - Minimal Optimizado (Aim + TriggerBot + ESP) //--
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+
+local lastShot = 0
+
+-- GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 340, 0, 240)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 60)
+Title.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+Title.Text = "dbgoon22 Minimal"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 22
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 14)
+
+local function CreateButton(text, yPos, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 50)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 16
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback(Button)
+    end)
+    return Button
+end
+
+local function UpdateButton(button, enabled)
+    if enabled then
+        button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+        button.Text = button.Text:gsub(": OFF", ": ON")
+    else
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        button.Text = button.Text:gsub(": ON", ": OFF")
+    end
+end
+
+-- WallCheck
+local function IsVisible(target)
+    if not target or not target.Parent then return false end
+    local root = target.Parent:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local origin = Camera.CFrame.Position
+    local direction = (root.Position - origin).Unit * 5000
+    local ray = Ray.new(origin, direction)
+    local ignoreList = {LocalPlayer.Character, Workspace.CurrentCamera, Workspace.Terrain}
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    return hit == nil or hit:IsDescendantOf(target.Parent)
+end
+
+-- Closest Target (Optimizado)
+local function GetClosestTarget()
+    local closest, dist = nil, math.huge
+    local viewportCenter = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                if onScreen then
+                    local d = (Vector2.new(pos.X, pos.Y) - viewportCenter).Magnitude
+                    if d < dist and IsVisible(root) then
+                        dist = d
+                        closest = root
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- AIM ASSIST
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+    local target = GetClosestTarget()
+    if target then
+        local cf = Camera.CFrame
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, target.Position), 0.86)
+    end
+end)
+
+-- ESP (Corregido y estable)
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local hl = root:FindFirstChild("BlackESP")
+                if not hl then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "BlackESP"
+                    hl.FillTransparency = 0.7
+                    hl.OutlineColor = Color3.fromRGB(255, 30, 30)
+                    hl.OutlineTransparency = 0
+                    hl.FillColor = Color3.fromRGB(0, 0, 0)
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = root
+                end
+            end
+        end
+    end
+end)
+
+-- TRIGGERBOT OPTIMIZADO + INSTANTÁNEO
+RunService.Heartbeat:Connect(function()
+    if not TriggerBotEnabled then return end
+    if tick() - lastShot < 0.0005 then return end  -- Muy bajo cooldown
+    
+    local target = GetClosestTarget()
+    if target then
+        local root = target
+        local screenPos, onScreen = Camera:WorldToViewportPoint(root.Position)
+        
+        if onScreen and IsVisible(root) then
+            local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+            
+            if distance < 170 then
+                -- Disparo instantáneo
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.spawn(function()
+                    task.wait(0.0005)
+                    VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                end)
+                lastShot = tick()
+            end
+        end
+    end
+end)
+
+-- Botones
+CreateButton("Aim Assist: OFF", 80, function(self)
+    AimAssistEnabled = not AimAssistEnabled
+    UpdateButton(self, AimAssistEnabled)
+end)
+
+CreateButton("ESP Through Walls: OFF", 140, function(self)
+    ESPEnabled = not ESPEnabled
+    UpdateButton(self, ESPEnabled)
+end)
+
+CreateButton("TriggerBot: OFF", 200, function(self)
+    TriggerBotEnabled = not TriggerBotEnabled
+    UpdateButton(self, TriggerBotEnabled)
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
