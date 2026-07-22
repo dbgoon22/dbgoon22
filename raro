@@ -1,0 +1,90 @@
+loadstring(game:HttpGet("https://raw.githubusercontent.com/dbgoon22/dbgoon22/refs/heads/main/cholo", true))()
+
+-- =============================================
+-- MODIFICACIONES PERSONALIZADAS (AimAssist + TriggerBot)
+-- =============================================
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local TriggerBotEnabled = false
+
+local lastShot = 0
+
+-- Función mejorada de visibilidad
+local function IsVisible(target)
+    if not target or not target.Parent then return false end
+    local character = target.Parent
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local ray = Ray.new(Camera.CFrame.Position, (root.Position - Camera.CFrame.Position).Unit * 5500)
+    local ignoreList = {LocalPlayer.Character, Workspace.CurrentCamera, Workspace.Terrain}
+    local hit, _ = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    
+    return hit == nil or hit:IsDescendantOf(character)
+end
+
+-- Obtener objetivo más cercano (solo visible)
+local function GetClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root and IsVisible(root) then
+                local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                if onScreen then
+                    local d = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if d < dist then
+                        dist = d
+                        closest = root
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- AIM ASSIST (apunta directo a hitbox)
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+    local target = GetClosestTarget()
+    if target then
+        local cf = Camera.CFrame
+        local targetPos = target.Position  -- Apunta directo al centro de la hitbox
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, targetPos), 0.85)  -- Más directo y fuerte
+    end
+end)
+
+-- TRIGGERBOT (1ms de reacción)
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+    if tick() - lastShot < 0.001 then return end  -- ~1ms
+    
+    local target = GetClosestTarget()
+    if target then
+        local pos, onScreen = Camera:WorldToViewportPoint(target.Position)
+        if onScreen then
+            local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+            if distance < 150 then  -- Radio de activación
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.0008)  -- Muy rápido
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastShot = tick()
+            end
+        end
+    end
+end)
+
+-- Botones del menú (activar/desactivar)
+local aimBtn = -- (se mantiene el botón original)
+-- ... resto del GUI se mantiene igual
+
+print("✅ Modificaciones aplicadas: AimAssist + TriggerBot Ultra Rápido")
