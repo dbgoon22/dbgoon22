@@ -71,7 +71,6 @@ local Window = WindUI:CreateWindow({
     HasOutline = true,
 })
 
--- Open Button
 Window:EditOpenButton({
     Title = "Open UI",
     Icon = "monitor",
@@ -82,7 +81,18 @@ Window:EditOpenButton({
         Color3.fromHex("1F75FE")
     ),
     Draggable = true,
+    Keybind = "P" -- Establece el atajo de teclado como P
 })
+
+-- Agrega esta sección al final del código para detectar la tecla P:
+
+local UserInputService = game:GetService("UserInputService")
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.P then
+        Window:Toggle()
+    end
+end)
 
 -- Tabs
 local Tabs = {
