@@ -1,0 +1,278 @@
+--// dbgoon22 CLIENT - 333 100x100 BYPASS + FLY //--
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+local HitboxEnabled = false
+local RainbowHitbox = false
+local FlyEnabled = false
+
+local AimPower = 97
+local lastShot = 0
+local SHOT_COOLDOWN = 0.07
+
+local originalSizes = {}
+local flySpeed = 50
+local flyVelocity = nil
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 380, 0, 620)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 65)
+Title.BackgroundColor3 = Color3.fromRGB(0, 90, 255)
+Title.Text = "dbgoon22 333 - 100x100 BYPASS + FLY"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 23
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 14)
+
+local function CreateButton(text, yPos, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 52)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 17
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback(Button)
+    end)
+    return Button
+end
+
+local function IsVisible(target)
+    if not target or not target.Parent then return false end
+    local character = target.Parent
+    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
+    if not root then return false end
+    
+    local ray = Ray.new(Camera.CFrame.Position, (root.Position - Camera.CFrame.Position).Unit * 5000)
+    local ignoreList = {LocalPlayer.Character, Workspace.CurrentCamera, Workspace.Terrain}
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    return hit == nil or hit:IsDescendantOf(character)
+end
+
+local function GetClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root and IsVisible(root) then
+                local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                if onScreen then
+                    local d = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if d < dist then
+                        dist = d
+                        closest = root
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Aim al centro
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+    local target = GetClosestTarget()
+    if target then
+        local cf = Camera.CFrame
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, target.Position), AimPower/105)
+    end
+end)
+
+-- ESP Bonito
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and not plr.Character:FindFirstChild("HighlightESP") then
+            local hl = Instance.new("Highlight")
+            hl.Name = "HighlightESP"
+            hl.FillTransparency = 0.6
+            hl.OutlineColor = Color3.fromRGB(0, 255, 255)
+            hl.OutlineTransparency = 0
+            hl.FillColor = Color3.fromRGB(148, 0, 211)
+            hl.Parent = plr.Character
+        end
+    end
+end)
+
+-- Hitbox 100x100 Bypass
+local rainbowHue = 0
+RunService.RenderStepped:Connect(function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local head = plr.Character:FindFirstChild("Head")
+            
+            if hrp and not originalSizes[hrp] then originalSizes[hrp] = hrp.Size end
+            if head and not originalSizes[head] then originalSizes[head] = head.Size end
+
+            if HitboxEnabled then
+                rainbowHue = (rainbowHue + 0.025) % 1
+                local color = RainbowHitbox and Color3.fromHSV(rainbowHue, 1, 1) or Color3.fromRGB(255, 0, 100)
+                
+                if hrp then
+                    hrp.Size = Vector3.new(25, 25, 25)  -- 100x100 STYLE
+                    hrp.Transparency = 0.2
+                    hrp.Color = color
+                    hrp.CanCollide = false
+                    hrp.Material = Enum.Material.ForceField
+                end
+                if head then
+                    head.Size = Vector3.new(12, 12, 12)
+                    head.Transparency = 0.2
+                    head.Color = color
+                    head.Material = Enum.Material.ForceField
+                end
+            else
+                if hrp then
+                    hrp.Size = originalSizes[hrp] or Vector3.new(2, 2, 1)
+                    hrp.Transparency = 0
+                    hrp.Color = Color3.fromRGB(163, 162, 165)
+                    hrp.Material = Enum.Material.Plastic
+                end
+                if head then
+                    head.Size = originalSizes[head] or Vector3.new(1, 1, 1)
+                    head.Transparency = 0
+                    head.Color = Color3.fromRGB(163, 162, 165)
+                    head.Material = Enum.Material.Plastic
+                end
+            end
+        end
+    end
+end)
+
+-- TriggerBot
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+    if tick() - lastShot < SHOT_COOLDOWN then return end
+    
+    local target = GetClosestTarget()
+    if target then
+        local pos, onScreen = Camera:WorldToViewportPoint(target.Position)
+        if onScreen then
+            local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+            if distance < 140 then
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.00001)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastShot = tick()
+            end
+        end
+    end
+end)
+
+-- Fly
+local function ToggleFly()
+    FlyEnabled = not FlyEnabled
+    local character = LocalPlayer.Character
+    if not character then return end
+    local humanoid = character:FindFirstChild("Humanoid")
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root or not humanoid then return end
+    
+    if FlyEnabled then
+        humanoid.PlatformStand = true
+        flyVelocity = Instance.new("BodyVelocity")
+        flyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        flyVelocity.Velocity = Vector3.new(0, 0, 0)
+        flyVelocity.Parent = root
+    else
+        if flyVelocity then flyVelocity:Destroy() end
+        if humanoid then humanoid.PlatformStand = false end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if FlyEnabled and flyVelocity then
+        local moveDirection = Vector3.new(0, 0, 0)
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDirection = moveDirection + Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDirection = moveDirection - Camera.CFrame.LookVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDirection = moveDirection - Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDirection = moveDirection + Camera.CFrame.RightVector end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDirection = moveDirection + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then moveDirection = moveDirection - Vector3.new(0, 1, 0) end
+        
+        flyVelocity.Velocity = moveDirection.Unit * flySpeed
+    end
+end)
+
+-- Botones
+CreateButton("Aim Assist: OFF", 80, function(self)
+    AimAssistEnabled = not AimAssistEnabled
+    self.Text = "Aim Assist: " .. (AimAssistEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(40, 40, 50)
+end)
+
+CreateButton("ESP Bonito: OFF", 145, function(self)
+    ESPEnabled = not ESPEnabled
+    self.Text = "ESP Bonito: " .. (ESPEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = ESPEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(40, 40, 50)
+end)
+
+CreateButton("TriggerBot: OFF", 210, function(self)
+    TriggerBotEnabled = not TriggerBotEnabled
+    self.Text = "TriggerBot: " .. (TriggerBotEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = TriggerBotEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(40, 40, 50)
+end)
+
+CreateButton("Hitbox 100x100: OFF", 275, function(self)
+    HitboxEnabled = not HitboxEnabled
+    self.Text = "Hitbox 100x100: " .. (HitboxEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = HitboxEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(40, 40, 50)
+end)
+
+CreateButton("Rainbow Hitbox: OFF", 340, function(self)
+    RainbowHitbox = not RainbowHitbox
+    self.Text = "Rainbow Hitbox: " .. (RainbowHitbox and "ON" or "OFF")
+    self.BackgroundColor3 = RainbowHitbox and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(40, 40, 50)
+end)
+
+CreateButton("FLY (F): OFF", 405, function(self)
+    ToggleFly()
+    self.Text = "FLY (F): " .. (FlyEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = FlyEnabled and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(40, 40, 50)
+end)
+
+-- Tecla F para Fly
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.F then
+        ToggleFly()
+    end
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+print("✅ dbgoon22 333 100x100 BYPASS + FLY cargado | F = Fly | P = Menu")
