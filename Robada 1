@@ -995,3 +995,23 @@ game:BindToClose(function()
         end
     end
 end)
+Window:EditOpenButton({
+    Title = "Open UI",
+    Icon = "monitor",
+    CornerRadius = UDim.new(2, 6),
+    StrokeThickness = 2,
+    Color = ColorSequence.new(
+        Color3.fromHex("1E213D"),
+        Color3.fromHex("1F75FE")
+    ),
+    Draggable = true,
+    Keybind = "P" -- Set keybind to P
+})
+
+-- Key detection for opening GUI with P key
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.P then
+        Window:Toggle()
+    end
+end)
+
