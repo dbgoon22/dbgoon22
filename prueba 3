@@ -1,0 +1,295 @@
+--// HACK MENU MEJORADO FINAL //--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local SpeedEnabled = false
+local SpeedValue = 100
+local TriggerBotEnabled = false
+local AimbotEnabled = false
+local AimPower = 50
+local AimAssistEnabled = false
+local ESPEnabled = false
+local HitboxEnabled = false
+local HitboxSize = 10
+local RainbowHitbox = false
+
+local ESPObjects = {}
+local rainbowHue = 0
+
+-- GUI Mejorada
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 290, 0, 550)
+MainFrame.Position = UDim2.new(0.08, 0, 0.1, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 50)
+Title.BackgroundColor3 = Color3.fromRGB(0, 120, 255)
+Title.Text = "HACK MENU"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 24
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 14)
+
+local function CreateButton(text, yPos)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 45)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 15
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    return Button
+end
+
+local AimbotButton = CreateButton("Aimbot: OFF", 70)
+local AimPowerButton = CreateButton("Aim Power: "..AimPower.."%", 125)
+local AimAssistButton = CreateButton("Aim Assist: OFF", 180)
+local ESPButton = CreateButton("ESP + Wallhack: OFF", 235)
+local TriggerButton = CreateButton("TriggerBot: OFF", 290)
+local SpeedButton = CreateButton("Speed: OFF", 345)
+local HitboxButton = CreateButton("Hitbox: OFF", 400)
+local RainbowButton = CreateButton("Rainbow Hitbox: OFF", 455)
+local SizeButton = CreateButton("Hitbox Size: "..HitboxSize, 510)
+
+-- Tecla P
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- ESP Mejorado
+local function UpdateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local box = ESPObjects[player]
+                if not box then
+                    box = Drawing.new("Square")
+                    box.Thickness = 2.5
+                    box.Filled = false
+                    box.Transparency = 1
+                    ESPObjects[player] = box
+                end
+                local top = Camera:WorldToViewportPoint(root.Position + Vector3.new(0,3,0))
+                local bottom = Camera:WorldToViewportPoint(root.Position - Vector3.new(0,3,0))
+                if top.Z > 0 then
+                    box.Size = Vector2.new(2400 / (root.Position - Camera.CFrame.Position).Magnitude, bottom.Y - top.Y)
+                    box.Position = Vector2.new(top.X - box.Size.X/2, top.Y)
+                    box.Visible = true
+                else
+                    box.Visible = false
+                end
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(UpdateESP)
+
+-- Aimbot con potencia regulable
+local function GetPrediction(target)
+    local root = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return nil end
+    return root.Position + root.AssemblyLinearVelocity * 0.13
+end
+
+RunService.RenderStepped:Connect(function()
+    if AimbotEnabled then
+        local closest, dist = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local pos = GetPrediction(plr)
+                if pos then
+                    local screen, onScreen = Camera:WorldToViewportPoint(pos)
+                    if onScreen then
+                        local d = (Vector2.new(screen.X, screen.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                        if d < dist then dist = d; closest = pos end
+                    end
+                end
+            end
+        end
+        if closest then
+            local current = Camera.CFrame
+            local target = CFrame.lookAt(current.Position, closest)
+            Camera.CFrame = current:Lerp(target, AimPower/250)
+        end
+    end
+end)
+
+-- Aim Assist
+RunService.RenderStepped:Connect(function()
+    if AimAssistEnabled and not AimbotEnabled then
+        local closest, dist = nil, math.huge
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local root = plr.Character:FindFirstChild("HumanoidRootPart")
+                if root then
+                    local screen, onScreen = Camera:WorldToViewportPoint(root.Position)
+                    if onScreen then
+                        local d = (Vector2.new(screen.X, screen.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                        if d < 200 and d < dist then
+                            dist = d
+                            closest = root.Position
+                        end
+                    end
+                end
+            end
+        end
+        if closest then
+            local current = Camera.CFrame
+            local target = CFrame.lookAt(current.Position, closest)
+            Camera.CFrame = current:Lerp(target, 0.12)
+        end
+    end
+end)
+
+-- TriggerBot Mejorado
+RunService.RenderStepped:Connect(function()
+    if TriggerBotEnabled then
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local part = player.Character:FindFirstChild("HumanoidRootPart") or player.Character:FindFirstChild("Head")
+                if part then
+                    local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
+                    if onScreen and (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude < 75 then
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+                        task.wait(0.04)
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+                        break
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Speed
+RunService.RenderStepped:Connect(function()
+    if SpeedEnabled and LocalPlayer.Character then
+        local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then hum.WalkSpeed = SpeedValue end
+    end
+end)
+
+-- Hitbox con Rainbow
+local function ResetHitboxes()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local head = player.Character:FindFirstChild("Head")
+            if hrp then hrp.Size = Vector3.new(2,2,1); hrp.Transparency = 0; hrp.CanCollide = true end
+            if head then head.Size = Vector3.new(1,1,1); head.Transparency = 0 end
+        end
+    end
+end
+
+local function ExpandHitboxes()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local head = player.Character:FindFirstChild("Head")
+            local color = RainbowHitbox and Color3.fromHSV(rainbowHue, 1, 1) or Color3.fromRGB(255, 0, 0)
+            if hrp then
+                hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                hrp.Transparency = 0.6
+                hrp.Color = color
+                hrp.CanCollide = false
+            end
+            if head then
+                head.Size = Vector3.new(HitboxSize/2, HitboxSize/2, HitboxSize/2)
+                head.Transparency = 0.6
+                head.Color = color
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if RainbowHitbox and HitboxEnabled then
+        rainbowHue = (rainbowHue + 0.01) % 1
+        ExpandHitboxes()
+    end
+end)
+
+-- Botones
+AimbotButton.MouseButton1Click:Connect(function()
+    AimbotEnabled = not AimbotEnabled
+    AimbotButton.Text = AimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
+    AimbotButton.BackgroundColor3 = AimbotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+AimPowerButton.MouseButton1Click:Connect(function()
+    AimPower = AimPower + 10
+    if AimPower > 100 then AimPower = 10 end
+    AimPowerButton.Text = "Aim Power: "..AimPower.."%"
+end)
+
+AimAssistButton.MouseButton1Click:Connect(function()
+    AimAssistEnabled = not AimAssistEnabled
+    AimAssistButton.Text = AimAssistEnabled and "Aim Assist: ON" or "Aim Assist: OFF"
+    AimAssistButton.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+ESPButton.MouseButton1Click:Connect(function()
+    ESPEnabled = not ESPEnabled
+    ESPButton.Text = ESPEnabled and "ESP + Wallhack: ON" or "ESP + Wallhack: OFF"
+    ESPButton.BackgroundColor3 = ESPEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+TriggerButton.MouseButton1Click:Connect(function()
+    TriggerBotEnabled = not TriggerBotEnabled
+    TriggerButton.Text = TriggerBotEnabled and "TriggerBot: ON" or "TriggerBot: OFF"
+    TriggerButton.BackgroundColor3 = TriggerBotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+SpeedButton.MouseButton1Click:Connect(function()
+    SpeedEnabled = not SpeedEnabled
+    SpeedButton.Text = SpeedEnabled and "Speed: ON ("..SpeedValue..")" or "Speed: OFF"
+    SpeedButton.BackgroundColor3 = SpeedEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+HitboxButton.MouseButton1Click:Connect(function()
+    HitboxEnabled = not HitboxEnabled
+    HitboxButton.Text = HitboxEnabled and "Hitbox: ON" or "Hitbox: OFF"
+    HitboxButton.BackgroundColor3 = HitboxEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+    if HitboxEnabled then ExpandHitboxes() else ResetHitboxes() end
+end)
+
+RainbowButton.MouseButton1Click:Connect(function()
+    RainbowHitbox = not RainbowHitbox
+    RainbowButton.Text = RainbowHitbox and "Rainbow Hitbox: ON" or "Rainbow Hitbox: OFF"
+    RainbowButton.BackgroundColor3 = RainbowHitbox and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+SizeButton.MouseButton1Click:Connect(function()
+    HitboxSize = HitboxSize + 2
+    if HitboxSize > 20 then HitboxSize = 4 end
+    SizeButton.Text = "Hitbox Size: " .. HitboxSize
+    if HitboxEnabled then ExpandHitboxes() end
+end)
+
+print("✅ Menu Mejorado Cargado - Presiona P")
