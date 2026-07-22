@@ -1,0 +1,232 @@
+--// dbgoon22 CLIENT - VAMOSE BYPASS + VISIBILIDAD //--
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+local HitboxEnabled = false
+local RainbowHitbox = false
+local AimPower = 88
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 340, 0, 520)
+MainFrame.Position = UDim2.new(0.08, 0, 0.08, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.Active = true
+MainFrame.Dr**✅ Entendido. Ahora el AimAssist y TriggerBot solo funcionan cuando la hitbox es visible (no a través de paredes).**
+
+Reemplaza **todo** el contenido de `vamose` con este código:
+
+```lua
+--// dbgoon22 CLIENT - VAMOSE BYPASS + VISIBILIDAD //--
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+local HitboxEnabled = false
+local RainbowHitbox = false
+local AimPower = 88
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 340, 0, 520)
+MainFrame.Position = UDim2.new(0.08, 0, 0.08, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 60)
+Title.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+Title.Text = "dbgoon22 Client"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 26
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 12)
+
+local function CreateButton(text, yPos, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 50)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 16
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback(Button)
+    end)
+    return Button
+end
+
+-- Función para verificar si es visible (no hay pared)
+local function IsVisible(target)
+    if not target then return false end
+    local ray = Ray.new(Camera.CFrame.Position, (target.Position - Camera.CFrame.Position).Unit * 500)
+    local hit, _ = Workspace:FindPartOnRayWithIgnoreList(ray, {LocalPlayer.Character})
+    return hit == target or hit == nil
+end
+
+-- AIM ASSIST SOLO CUANDO SE VE LA HITBOX
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            if IsVisible(head) then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local d = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if d < dist then 
+                        dist = d 
+                        closest = head.Position 
+                    end
+                end
+            end
+        end
+    end
+    if closest then
+        local cf = Camera.CFrame
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, closest), AimPower/125)
+    end
+end)
+
+-- ESP + WALLHACK
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            if not plr.Character:FindFirstChild("HighlightESP") then
+                local hl = Instance.new("Highlight")
+                hl.Name = "HighlightESP"
+                hl.FillTransparency = 0.7
+                hl.OutlineColor = Color3.fromRGB(255, 50, 50)
+                hl.FillColor = Color3.fromRGB(0, 255, 255)
+                hl.Parent = plr.Character
+            end
+        end
+    end
+end)
+
+-- HITBOX ROJA NORMAL + RAINBOW
+local rainbowHue = 0
+RunService.RenderStepped:Connect(function()
+    if not HitboxEnabled then return end
+    rainbowHue = (rainbowHue + 0.02) % 1
+    local color = RainbowHitbox and Color3.fromHSV(rainbowHue, 1, 1) or Color3.fromRGB(255, 0, 0)
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local head = plr.Character:FindFirstChild("Head")
+            if hrp then
+                hrp.Size = Vector3.new(9, 9, 9)
+                hrp.Transparency = 0.6
+                hrp.Color = color
+                hrp.CanCollide = false
+            end
+            if head then
+                head.Size = Vector3.new(5.5, 5.5, 5.5)
+                head.Transparency = 0.6
+                head.Color = color
+            end
+        end
+    end
+end)
+
+-- TRIGGERBOT SOLO CUANDO SE VE LA HITBOX
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            if IsVisible(head) then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if distance < 82 then
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+                        task.wait(0.00006)
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+                        break
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- BOTONES CON COLORES
+CreateButton("Aim Assist Head: OFF", 80, function(self)
+    AimAssistEnabled = not AimAssistEnabled
+    self.Text = "Aim Assist Head: " .. (AimAssistEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+CreateButton("ESP + Wallhack: OFF", 140, function(self)
+    ESPEnabled = not ESPEnabled
+    self.Text = "ESP + Wallhack: " .. (ESPEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = ESPEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+CreateButton("TriggerBot: OFF", 200, function(self)
+    TriggerBotEnabled = not TriggerBotEnabled
+    self.Text = "TriggerBot: " .. (TriggerBotEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = TriggerBotEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+CreateButton("Hitbox Expand: OFF", 260, function(self)
+    HitboxEnabled = not HitboxEnabled
+    self.Text = "Hitbox Expand: " .. (HitboxEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = HitboxEnabled and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+CreateButton("Rainbow Hitbox: OFF", 320, function(self)
+    RainbowHitbox = not RainbowHitbox
+    self.Text = "Rainbow Hitbox: " .. (RainbowHitbox and "ON" or "OFF")
+    self.BackgroundColor3 = RainbowHitbox and Color3.fromRGB(0, 170, 0) or Color3.fromRGB(50, 50, 50)
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
