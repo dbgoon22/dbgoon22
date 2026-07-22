@@ -1,0 +1,230 @@
+--// dbgoon22 - Minimal (Aim + TriggerBot + ESP Through Walls) //--
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+local HitboxEnabled = false   -- Necesario para que TriggerBot funcione
+
+local HitboxSize = 10.2
+local originalSizes = {}
+local lastShot = 0
+
+-- GUI Simple
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 340, 0, 340)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 60)
+Title.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+Title.Text = "dbgoon22 Minimal"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 22
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 14)
+
+local function CreateButton(text, yPos, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 50)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 16
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback(Button)
+    end)
+    return Button
+end
+
+local function UpdateButton(button, enabled)
+    if enabled then
+        button.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+        button.Text = button.Text:gsub(": OFF", ": ON")
+    else
+        button.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+        button.Text = button.Text:gsub(": ON", ": OFF")
+    end
+end
+
+-- WallCheck
+local function IsVisible(target)
+    if not target or not target.Parent then return false end
+    local root = target.Parent:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local ray = Ray.new(Camera.CFrame.Position, (root.Position - Camera.CFrame.Position).Unit * 5500)
+    local ignoreList = {LocalPlayer.Character, Workspace.CurrentCamera, Workspace.Terrain}
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    return hit == nil or hit:IsDescendantOf(target.Parent)
+end
+
+-- Closest Target (solo si tiene hitbox expandida)
+local function GetClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root and IsVisible(root) then
+                -- Solo considera jugadores con hitbox expandida si el Hitbox Expander está ON
+                local isHitboxActive = HitboxEnabled and root.Size.X > 5
+                if isHitboxActive or not HitboxEnabled then
+                    local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                    if onScreen then
+                        local d = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                        if d < dist then
+                            dist = d
+                            closest = root
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- AIM ASSIST
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+    local target = GetClosestTarget()
+    if target then
+        local cf = Camera.CFrame
+        local targetPos = target.Position
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, targetPos), 0.87)
+    end
+end)
+
+-- ESP THROUGH WALLS
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root then
+                local hl = root:FindFirstChild("BlackESP")
+                if not hl then
+                    hl = Instance.new("Highlight")
+                    hl.Name = "BlackESP"
+                    hl.FillTransparency = 0.6
+                    hl.OutlineColor = Color3.fromRGB(255, 0, 0)
+                    hl.OutlineTransparency = 0
+                    hl.FillColor = Color3.fromRGB(0, 0, 0)
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = root
+                end
+            end
+        end
+    end
+end)
+
+-- HITBOX EXPANDER
+RunService.RenderStepped:Connect(function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            if hrp and not originalSizes[hrp] then 
+                originalSizes[hrp] = hrp.Size 
+            end
+
+            if HitboxEnabled and hrp then
+                hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                hrp.Transparency = 0.23
+                hrp.Color = Color3.fromRGB(255, 55, 55)
+                hrp.CanCollide = false
+                hrp.Material = Enum.Material.ForceField
+            elseif hrp then
+                hrp.Size = originalSizes[hrp] or Vector3.new(2, 2, 1)
+                hrp.Transparency = 0
+                hrp.Color = Color3.fromRGB(163, 162, 165)
+                hrp.Material = Enum.Material.Plastic
+            end
+        end
+    end
+end)
+
+-- TRIGGERBOT (Solo dispara si detecta hitbox)
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+    if tick() - lastShot < 0.050 then return end
+    
+    local target = GetClosestTarget()
+    if target and HitboxEnabled then  -- Solo si el Hitbox Expander está activado
+        local root = target
+        local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+        
+        if onScreen and IsVisible(root) then
+            local randomOffset = Vector3.new(
+                math.random(-2.8, 2.8),
+                math.random(-2, 3.2),
+                math.random(-2.8, 2.8)
+            )
+            
+            local hitPos = root.Position + randomOffset
+            local screenPos = Camera:WorldToViewportPoint(hitPos)
+            
+            local distance = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+            
+            if distance < 190 then
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.0008)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastShot = tick()
+            end
+        end
+    end
+end)
+
+-- Botones
+CreateButton("Aim Assist: OFF", 80, function(self)
+    AimAssistEnabled = not AimAssistEnabled
+    UpdateButton(self, AimAssistEnabled)
+end)
+
+CreateButton("ESP Through Walls: OFF", 140, function(self)
+    ESPEnabled = not ESPEnabled
+    UpdateButton(self, ESPEnabled)
+end)
+
+CreateButton("TriggerBot: OFF", 200, function(self)
+    TriggerBotEnabled = not TriggerBotEnabled
+    UpdateButton(self, TriggerBotEnabled)
+end)
+
+CreateButton("Hitbox Expander: OFF", 260, function(self)
+    HitboxEnabled = not HitboxEnabled
+    UpdateButton(self, HitboxEnabled)
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
