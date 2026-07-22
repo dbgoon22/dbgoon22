@@ -1,0 +1,245 @@
+--// dbgoon22 CLIENT - PERFECT UNDETECTABLE EDITION //--
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+local HitboxEnabled = false
+local RainbowHitbox = false
+local SpeedEnabled = false
+
+local AimPower = 93
+local HitboxSize = 9.5   -- Slightly bigger than normal
+local WalkSpeed = 48
+
+local originalSizes = {}
+local lastShot = 0
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 380, 0, 580)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 14)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 65)
+Title.BackgroundColor3 = Color3.fromRGB(0, 90, 255)
+Title.Text = "dbgoon22 Perfect Edition"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 24
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 14)
+
+local function CreateButton(text, yPos, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 52)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 17
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback(Button)
+    end)
+    return Button
+end
+
+local function IsVisible(target)
+    if not target or not target.Parent then return false end
+    local character = target.Parent
+    local root = character:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local ray = Ray.new(Camera.CFrame.Position, (root.Position - Camera.CFrame.Position).Unit * 5200)
+    local ignoreList = {LocalPlayer.Character, Workspace.CurrentCamera, Workspace.Terrain}
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    return hit == nil or hit:IsDescendantOf(character)
+end
+
+local function GetClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root and IsVisible(root) then
+                local pos, onScreen = Camera:WorldToViewportPoint(root.Position)
+                if onScreen then
+                    local d = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if d < dist then
+                        dist = d
+                        closest = root
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Improved Aim Assist (Smoother & More Natural)
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled or not HitboxEnabled then return end
+    local target = GetClosestTarget()
+    if target then
+        local cf = Camera.CFrame
+        local targetPos = target.Position + Vector3.new(0, 0.45, 0)
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, targetPos), AimPower / 110)
+    end
+end)
+
+-- Black ESP on Hitbox
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local root = plr.Character:FindFirstChild("HumanoidRootPart")
+            if root and not root:FindFirstChild("BlackESP") then
+                local hl = Instance.new("Highlight")
+                hl.Name = "BlackESP"
+                hl.FillTransparency = 0.82
+                hl.OutlineColor = Color3.fromRGB(255, 40, 40)
+                hl.OutlineTransparency = 0.1
+                hl.FillColor = Color3.fromRGB(0, 0, 0)
+                hl.Parent = root
+            end
+        end
+    end
+end)
+
+-- Hitbox (Slightly Bigger than Normal - Only Body)
+local rainbowHue = 0
+RunService.RenderStepped:Connect(function()
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local head = plr.Character:FindFirstChild("Head")
+            
+            if hrp and not originalSizes[hrp] then originalSizes[hrp] = hrp.Size end
+            if head and not originalSizes[head] then originalSizes[head] = head.Size end
+
+            if HitboxEnabled then
+                rainbowHue = (rainbowHue + 0.028) % 1
+                local color = RainbowHitbox and Color3.fromHSV(rainbowHue, 1, 1) or Color3.fromRGB(255, 55, 55)
+                
+                if hrp then
+                    hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+                    hrp.Transparency = 0.25
+                    hrp.Color = color
+                    hrp.CanCollide = false
+                    hrp.Material = Enum.Material.ForceField
+                end
+                -- Head stays normal
+                if head then
+                    head.Size = originalSizes[head] or Vector3.new(1,1,1)
+                    head.Transparency = 0
+                end
+            else
+                if hrp then
+                    hrp.Size = originalSizes[hrp] or Vector3.new(2,2,1)
+                    hrp.Transparency = 0
+                    hrp.Color = Color3.fromRGB(163, 162, 165)
+                end
+                if head then
+                    head.Size = originalSizes[head] or Vector3.new(1,1,1)
+                    head.Transparency = 0
+                end
+            end
+        end
+    end
+end)
+
+-- Improved TriggerBot (Fast & Clean)
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled or not HitboxEnabled then return end
+    if tick() - lastShot < 0.0001 then return end
+    
+    local target = GetClosestTarget()
+    if target then
+        local pos, onScreen = Camera:WorldToViewportPoint(target.Position)
+        if onScreen then
+            local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+            if distance < HitboxSize * 9.5 then
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.000007)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastShot = tick()
+            end
+        end
+    end
+end)
+
+-- Speed
+RunService.RenderStepped:Connect(function()
+    if SpeedEnabled then
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = WalkSpeed
+        end
+    end
+end)
+
+-- Buttons
+CreateButton("Aim Assist: OFF", 80, function(self)
+    AimAssistEnabled = not AimAssistEnabled
+    self.Text = "Aim Assist: " .. (AimAssistEnabled and "ON" or "OFF")
+end)
+
+CreateButton("Black ESP: OFF", 145, function(self)
+    ESPEnabled = not ESPEnabled
+    self.Text = "Black ESP: " .. (ESPEnabled and "ON" or "OFF")
+end)
+
+CreateButton("TriggerBot: OFF", 210, function(self)
+    TriggerBotEnabled = not TriggerBotEnabled
+    self.Text = "TriggerBot: " .. (TriggerBotEnabled and "ON" or "OFF")
+end)
+
+CreateButton("Hitbox (Slightly Big): OFF", 275, function(self)
+    HitboxEnabled = not HitboxEnabled
+    self.Text = "Hitbox (Slightly Big): " .. (HitboxEnabled and "ON" or "OFF")
+end)
+
+CreateButton("Rainbow Hitbox: OFF", 340, function(self)
+    RainbowHitbox = not RainbowHitbox
+    self.Text = "Rainbow Hitbox: " .. (RainbowHitbox and "ON" or "OFF")
+end)
+
+CreateButton("Speed (V): OFF", 405, function(self)
+    SpeedEnabled = not SpeedEnabled
+    self.Text = "Speed (V): " .. (SpeedEnabled and "ON" or "OFF")
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+    if input.KeyCode == Enum.KeyCode.V then
+        SpeedEnabled = not SpeedEnabled
+    end
+end)
+
+print("✅ dbgoon22 Perfect Undetectable Edition Loaded | Press P to toggle menu")
