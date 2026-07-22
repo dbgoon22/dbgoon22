@@ -197,9 +197,7 @@ end)
 CreateButton("TriggerBot: OFF", 200, function(self)
     TriggerBotEnabled = not TriggerBotEnabled
     UpdateButton(self, TriggerBotEnabled)
-end)
-
-CreateButton("Hitbox Expander: OFF", 260, function(self)
+CreateButton("Hitbox Expander: OFF", 100, function(self)
     HitboxEnabled = not HitboxEnabled
     UpdateButton(self, HitboxEnabled)
 end)
