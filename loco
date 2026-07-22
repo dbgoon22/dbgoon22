@@ -1,0 +1,213 @@
+--// dbgoon22 CLIENT - 100x100 BYPASS FIXED //--
+-- Trigger no spam + Hitbox MAX + Aim mejorado
+
+if not game:IsLoaded() then game.Loaded:Wait() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local AimAssistEnabled = false
+local ESPEnabled = false
+local TriggerBotEnabled = false
+local HitboxEnabled = false
+local RainbowHitbox = false
+local AimPower = 97
+
+local lastShot = 0
+local SHOT_COOLDOWN = 0.085  -- Anti-spam (ajustable)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 370, 0, 570)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = true
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 12)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 60)
+Title.BackgroundColor3 = Color3.fromRGB(0, 80, 255)
+Title.Text = "dbgoon22 100x100 BYPASS FIXED"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 24
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 12)
+
+local function CreateButton(text, yPos, callback)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 52)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(45, 45, 55)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 17
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    
+    Button.MouseButton1Click:Connect(function()
+        callback(Button)
+    end)
+    return Button
+end
+
+local function IsVisible(target)
+    if not target or not target.Parent then return false end
+    local character = target.Parent
+    local root = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Head")
+    if not root then return false end
+    
+    local ray = Ray.new(Camera.CFrame.Position, (root.Position - Camera.CFrame.Position).Unit * 4000)
+    local ignoreList = {LocalPlayer.Character, Workspace.CurrentCamera, Workspace.Terrain}
+    local hit = Workspace:FindPartOnRayWithIgnoreList(ray, ignoreList)
+    
+    return hit == nil or hit:IsDescendantOf(character)
+end
+
+local function GetClosestTarget()
+    local closest, dist = nil, math.huge
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local head = plr.Character:FindFirstChild("Head")
+            if head and IsVisible(head) then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local d = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if d < dist then
+                        dist = d
+                        closest = head
+                    end
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Aim mejorado
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+    local target = GetClosestTarget()
+    if target then
+        local cf = Camera.CFrame
+        local targetPos = target.Position + Vector3.new(0, 0.8, 0) -- Apunta un poco más arriba
+        Camera.CFrame = cf:Lerp(CFrame.lookAt(cf.Position, targetPos), AimPower/108)
+    end
+end)
+
+-- ESP
+RunService.RenderStepped:Connect(function()
+    if not ESPEnabled then return end
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and not plr.Character:FindFirstChild("HighlightESP") then
+            local hl = Instance.new("Highlight")
+            hl.Name = "HighlightESP"
+            hl.FillTransparency = 0.45
+            hl.OutlineColor = Color3.fromRGB(255, 50, 50)
+            hl.OutlineTransparency = 0
+            hl.FillColor = Color3.fromRGB(0, 255, 180)
+            hl.Parent = plr.Character
+        end
+    end
+end)
+
+-- Hitbox al MÁXIMO
+local rainbowHue = 0
+RunService.RenderStepped:Connect(function()
+    if not HitboxEnabled then return end
+    rainbowHue = (rainbowHue + 0.028) % 1
+    local color = RainbowHitbox and Color3.fromHSV(rainbowHue, 1, 1) or Color3.fromRGB(255, 30, 30)
+    
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+            local head = plr.Character:FindFirstChild("Head")
+            if hrp then
+                hrp.Size = Vector3.new(22, 22, 22)  -- MÁXIMO
+                hrp.Transparency = 0.18
+                hrp.Color = color
+                hrp.CanCollide = false
+                hrp.Material = Enum.Material.ForceField
+            end
+            if head then
+                head.Size = Vector3.new(11, 11, 11)
+                head.Transparency = 0.18
+                head.Color = color
+                head.Material = Enum.Material.ForceField
+            end
+        end
+    end
+end)
+
+-- TriggerBot sin spam (solo cuando detecta hitbox)
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+    if tick() - lastShot < SHOT_COOLDOWN then return end
+    
+    local target = GetClosestTarget()
+    if target then
+        local pos, onScreen = Camera:WorldToViewportPoint(target.Position)
+        if onScreen then
+            local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+            if distance < 135 then  -- Rango amplio por hitbox grande
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+                task.wait(0.000015)
+                VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+                lastShot = tick()
+            end
+        end
+    end
+end)
+
+-- Botones
+CreateButton("Aim Assist: OFF", 80, function(self)
+    AimAssistEnabled = not AimAssistEnabled
+    self.Text = "Aim Assist: " .. (AimAssistEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0, 190, 0) or Color3.fromRGB(45, 45, 55)
+end)
+
+CreateButton("ESP Wallhack: OFF", 145, function(self)
+    ESPEnabled = not ESPEnabled
+    self.Text = "ESP Wallhack: " .. (ESPEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = ESPEnabled and Color3.fromRGB(0, 190, 0) or Color3.fromRGB(45, 45, 55)
+end)
+
+CreateButton("TriggerBot (No Spam): OFF", 210, function(self)
+    TriggerBotEnabled = not TriggerBotEnabled
+    self.Text = "TriggerBot (No Spam): " .. (TriggerBotEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = TriggerBotEnabled and Color3.fromRGB(0, 190, 0) or Color3.fromRGB(45, 45, 55)
+end)
+
+CreateButton("Hitbox MÁXIMA: OFF", 150, function(self)
+    HitboxEnabled = not HitboxEnabled
+    self.Text = "Hitbox MÁXIMA: " .. (HitboxEnabled and "ON" or "OFF")
+    self.BackgroundColor3 = HitboxEnabled and Color3.fromRGB(0, 190, 0) or Color3.fromRGB(45, 45, 55)
+end)
+
+CreateButton("Rainbow Hitbox: OFF", 150, function(self)
+    RainbowHitbox = not RainbowHitbox
+    self.Text = "Rainbow Hitbox: " .. (RainbowHitbox and "ON" or "OFF")
+    self.BackgroundColor3 = RainbowHitbox and Color3.fromRGB(0, 190, 0) or Color3.fromRGB(45, 45, 55)
+end)
+
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+print("✅ dbgoon22 100x100 BYPASS FIXED | Trigger sin spam + Hitbox MAX | Presiona P")
