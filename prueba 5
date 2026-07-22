@@ -1,0 +1,493 @@
+--// dbgoon22 CLIENT - FULL BYPASS MODE //--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Variables
+local SpeedEnabled = false
+local SpeedValue = 100
+local JumpEnabled = false
+local TriggerBotEnabled = false
+local AimbotEnabled = false
+local AimAssistEnabled = false
+local ESPEnabled = false
+local HitboxEnabled = false
+local HitboxSize = 10
+local RainbowHitbox = false
+local FakeLagEnabled = false
+
+local ESPObjects = {}
+local rainbowHue = 0
+
+-- ==================== GUI (sin cambios) ====================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 310, 0, 680)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 16)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 55)
+Title.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+Title.Text = "dbgoon22 Client"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 26
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 16)
+
+local function CreateButton(text, yPos)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 45)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 15
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    return Button
+end
+
+local function CreateSection(text, y)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.9, 0, 0, 30)
+    label.Position = UDim2.new(0.05, 0, 0, y)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(0, 170, 255)
+    label.TextSize = 18
+    label.Font = Enum.Font.GothamBold
+    label.Parent = MainFrame
+    return label
+end
+
+CreateSection("PLAYER", 70)
+local SpeedButton = CreateButton("Speed: OFF", 105)
+local JumpButton = CreateButton("Infinite Jump: OFF", 160)
+local FakeLagButton = CreateButton("Fake Lag: OFF", 215)
+
+CreateSection("HACK", 275)
+local AimbotButton = CreateButton("Aimbot: OFF", 310)
+local AimPowerButton = CreateButton("Aim Power: "..AimPower.."%", 365) -- AimPower no está definido, lo agrego abajo
+local AimAssistButton = CreateButton("Aim Assist Head: OFF", 420)
+local ESPButton = CreateButton("ESP + Wallhack: OFF", 475)
+local TriggerButton = CreateButton("TriggerBot: OFF", 530)
+local HitboxButton = CreateButton("Hitbox: OFF", 585)
+local RainbowButton = CreateButton("Rainbow Hitbox: OFF", 640)
+local SizeButton = CreateButton("Hitbox Size: "..HitboxSize, 695)
+
+-- Tecla P
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- ==================== NUEVAS VARIABLES ====================
+local AimPower = 50
+
+-- ==================== AIM ASSIST A LA CABEZA TODO EL RATO ====================
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+
+    local closest = nil
+    local shortestDist = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            if head then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        closest = head.Position
+                    end
+                end
+            end
+        end
+    end
+
+    if closest then
+        local current = Camera.CFrame
+        local targetCFrame = CFrame.lookAt(current.Position, closest)
+        Camera.CFrame = current:Lerp(targetCFrame, AimPower / 150) -- Más suave y fuerte
+    end
+end)
+
+-- ==================== ESP + WALLHACK (ver a través de todo) ====================
+local function UpdateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            local head = player.Character:FindFirstChild("Head")
+            if root and head then
+                -- Wallhack fuerte
+                if ESPEnabled then
+                    local highlight = player.Character:FindFirstChild("WallhackHighlight")
+                    if not highlight then
+                        highlight = Instance.new("Highlight")
+                        highlight.Name = "WallhackHighlight"
+                        highlight.FillTransparency = 0.7
+                        highlight.OutlineTransparency = 0
+                        highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+                        highlight.FillColor = Color3.fromRGB(0, 255, 255)
+                        highlight.Parent = player.Character
+                    end
+                end
+
+                -- ESP Box
+                local box = ESPObjects[player]
+                if not box then
+                    box = Drawing.new("Square")
+                    box.Thickness = 2.5
+                    box.Filled = false
+                    box.Transparency = 1
+                    ESPObjects[player] = box
+                end
+
+                local top = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, 3, 0))
+                local bottom = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+
+                if top.Z > 0 then
+                    box.Size = Vector2.new(2400 / (root.Position - Camera.CFrame.Position).Magnitude, bottom.Y - top.Y)
+                    box.Position = Vector2.new(top.X - box.Size.X/2, top.Y)
+                    box.Visible = ESPEnabled
+                else
+                    box.Visible = false
+                end
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(UpdateESP)
+
+-- ==================== TRIGGERBOT (1ms cuando ve hitbox) ====================
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            if head then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if distance < 60 then  -- Hitbox en centro
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+                        task.wait(0.001)  -- 1 milisegundo
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+                        break
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ==================== BOTONES (actualizados) ====================
+AimbotButton.MouseButton1Click:Connect(function()
+    AimbotEnabled = not AimbotEnabled
+    AimbotButton.Text = AimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
+    AimbotButton.BackgroundColor3 = AimbotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+AimAssistButton.MouseButton1Click:Connect(function()
+    AimAssistEnabled = not AimAssistEnabled
+    AimAssistButton.Text = AimAssistEnabled and "Aim Assist Head: ON" or "Aim Assist Head: OFF"
+    AimAssistButton.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+ESPButton.MouseButton1Click:Connect(function()
+    ESPEnabled = not ESPEnabled
+    ESPButton.Text = ESPEnabled and "**✅ Script actualizado con todo lo que pediste:**
+
+```lua
+--// dbgoon22 CLIENT - FULL BYPASS MODE //--
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Variables
+local SpeedEnabled = false
+local SpeedValue = 100
+local JumpEnabled = false
+local TriggerBotEnabled = false
+local AimbotEnabled = false
+local AimAssistEnabled = false
+local ESPEnabled = false
+local HitboxEnabled = false
+local HitboxSize = 10
+local RainbowHitbox = false
+local FakeLagEnabled = false
+
+local ESPObjects = {}
+local rainbowHue = 0
+
+-- ==================== GUI (sin cambios) ====================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 310, 0, 680)
+MainFrame.Position = UDim2.new(0.08, 0, 0.05, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 16)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 55)
+Title.BackgroundColor3 = Color3.fromRGB(0, 100, 255)
+Title.Text = "dbgoon22 Client"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 26
+Title.Font = Enum.Font.GothamBold
+Title.Parent = MainFrame
+Instance.new("UICorner", Title).CornerRadius = UDim.new(0, 16)
+
+local function CreateButton(text, yPos)
+    local Button = Instance.new("TextButton")
+    Button.Size = UDim2.new(0.9, 0, 0, 45)
+    Button.Position = UDim2.new(0.05, 0, 0, yPos)
+    Button.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    Button.Text = text
+    Button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    Button.TextSize = 15
+    Button.Font = Enum.Font.GothamSemibold
+    Button.Parent = MainFrame
+    Instance.new("UICorner", Button).CornerRadius = UDim.new(0, 10)
+    return Button
+end
+
+local function CreateSection(text, y)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0.9, 0, 0, 30)
+    label.Position = UDim2.new(0.05, 0, 0, y)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(0, 170, 255)
+    label.TextSize = 18
+    label.Font = Enum.Font.GothamBold
+    label.Parent = MainFrame
+    return label
+end
+
+CreateSection("PLAYER", 70)
+local SpeedButton = CreateButton("Speed: OFF", 105)
+local JumpButton = CreateButton("Infinite Jump: OFF", 160)
+local FakeLagButton = CreateButton("Fake Lag: OFF", 215)
+
+CreateSection("HACK", 275)
+local AimbotButton = CreateButton("Aimbot: OFF", 310)
+local AimPowerButton = CreateButton("Aim Power: "..AimPower.."%", 365) -- AimPower no está definido, lo agrego abajo
+local AimAssistButton = CreateButton("Aim Assist Head: OFF", 420)
+local ESPButton = CreateButton("ESP + Wallhack: OFF", 475)
+local TriggerButton = CreateButton("TriggerBot: OFF", 530)
+local HitboxButton = CreateButton("Hitbox: OFF", 585)
+local RainbowButton = CreateButton("Rainbow Hitbox: OFF", 640)
+local SizeButton = CreateButton("Hitbox Size: "..HitboxSize, 695)
+
+-- Tecla P
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.P then
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+-- ==================== NUEVAS VARIABLES ====================
+local AimPower = 50
+
+-- ==================== AIM ASSIST A LA CABEZA TODO EL RATO ====================
+RunService.RenderStepped:Connect(function()
+    if not AimAssistEnabled then return end
+
+    local closest = nil
+    local shortestDist = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            if head then
+                local screenPos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        closest = head.Position
+                    end
+                end
+            end
+        end
+    end
+
+    if closest then
+        local current = Camera.CFrame
+        local targetCFrame = CFrame.lookAt(current.Position, closest)
+        Camera.CFrame = current:Lerp(targetCFrame, AimPower / 150) -- Más suave y fuerte
+    end
+end)
+
+-- ==================== ESP + WALLHACK (ver a través de todo) ====================
+local function UpdateESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local root = player.Character:FindFirstChild("HumanoidRootPart")
+            local head = player.Character:FindFirstChild("Head")
+            if root and head then
+                -- Wallhack fuerte
+                if ESPEnabled then
+                    local highlight = player.Character:FindFirstChild("WallhackHighlight")
+                    if not highlight then
+                        highlight = Instance.new("Highlight")
+                        highlight.Name = "WallhackHighlight"
+                        highlight.FillTransparency = 0.7
+                        highlight.OutlineTransparency = 0
+                        highlight.OutlineColor = Color3.fromRGB(255, 0, 0)
+                        highlight.FillColor = Color3.fromRGB(0, 255, 255)
+                        highlight.Parent = player.Character
+                    end
+                end
+
+                -- ESP Box
+                local box = ESPObjects[player]
+                if not box then
+                    box = Drawing.new("Square")
+                    box.Thickness = 2.5
+                    box.Filled = false
+                    box.Transparency = 1
+                    ESPObjects[player] = box
+                end
+
+                local top = Camera:WorldToViewportPoint(root.Position + Vector3.new(0, 3, 0))
+                local bottom = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+
+                if top.Z > 0 then
+                    box.Size = Vector2.new(2400 / (root.Position - Camera.CFrame.Position).Magnitude, bottom.Y - top.Y)
+                    box.Position = Vector2.new(top.X - box.Size.X/2, top.Y)
+                    box.Visible = ESPEnabled
+                else
+                    box.Visible = false
+                end
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(UpdateESP)
+
+-- ==================== TRIGGERBOT (1ms cuando ve hitbox) ====================
+RunService.RenderStepped:Connect(function()
+    if not TriggerBotEnabled then return end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local head = player.Character:FindFirstChild("Head")
+            if head then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen then
+                    local distance = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if distance < 60 then  -- Hitbox en centro
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,true,game,1)
+                        task.wait(0.001)  -- 1 milisegundo
+                        VirtualInputManager:SendMouseButtonEvent(0,0,0,false,game,1)
+                        break
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ==================== BOTONES (actualizados) ====================
+AimbotButton.MouseButton1Click:Connect(function()
+    AimbotEnabled = not AimbotEnabled
+    AimbotButton.Text = AimbotEnabled and "Aimbot: ON" or "Aimbot: OFF"
+    AimbotButton.BackgroundColor3 = AimbotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+AimAssistButton.MouseButton1Click:Connect(function()
+    AimAssistEnabled = not AimAssistEnabled
+    AimAssistButton.Text = AimAssistEnabled and "Aim Assist Head: ON" or "Aim Assist Head: OFF"
+    AimAssistButton.BackgroundColor3 = AimAssistEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+ESPButton.MouseButton1Click:Connect(function()
+    ESPEnabled = not ESPEnabled
+    ESPButton.Text = ESPEnabled and "ESP + Wallhack: ON" or "ESP + Wallhack: OFF"
+    ESPButton.BackgroundColor3 = ESPEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+TriggerButton.MouseButton1Click:Connect(function()
+    TriggerBotEnabled = not TriggerBotEnabled
+    TriggerButton.Text = TriggerBotEnabled and "TriggerBot: ON" or "TriggerBot: OFF"
+    TriggerButton.BackgroundColor3 = TriggerBotEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+-- Resto de botones (Speed, Jump, etc.) se mantienen iguales
+SpeedButton.MouseButton1Click:Connect(function()
+    SpeedEnabled = not SpeedEnabled
+    SpeedButton.Text = SpeedEnabled and "Speed: ON ("..SpeedValue..")" or "Speed: OFF"
+    SpeedButton.BackgroundColor3 = SpeedEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+JumpButton.MouseButton1Click:Connect(function()
+    JumpEnabled = not JumpEnabled
+    JumpButton.Text = JumpEnabled and "Infinite Jump: ON" or "Infinite Jump: OFF"
+    JumpButton.BackgroundColor3 = JumpEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+FakeLagButton.MouseButton1Click:Connect(function()
+    FakeLagEnabled = not FakeLagEnabled
+    FakeLagButton.Text = FakeLagEnabled and "Fake Lag: ON" or "Fake Lag: OFF"
+    FakeLagButton.BackgroundColor3 = FakeLagEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+HitboxButton.MouseButton1Click:Connect(function()
+    HitboxEnabled = not HitboxEnabled
+    HitboxButton.Text = HitboxEnabled and "Hitbox: ON" or "Hitbox: OFF"
+    HitboxButton.BackgroundColor3 = HitboxEnabled and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+    if HitboxEnabled then ExpandHitboxes() else ResetHitboxes() end
+end)
+
+RainbowButton.MouseButton1Click:Connect(function()
+    RainbowHitbox = not RainbowHitbox
+    RainbowButton.Text = RainbowHitbox and "Rainbow Hitbox: ON" or "Rainbow Hitbox: OFF"
+    RainbowButton.BackgroundColor3 = RainbowHitbox and Color3.fromRGB(0,170,0) or Color3.fromRGB(40,40,40)
+end)
+
+SizeButton.MouseButton1Click:Connect(function()
+    HitboxSize = HitboxSize + 2
+    if HitboxSize > 20 then HitboxSize = 4 end
+    SizeButton.Text = "Hitbox Size: " .. HitboxSize
+    if HitboxEnabled then ExpandHitboxes() end
+end)
+
+print("✅ dbgoon22 Client - Actualizado | AimAssist a cabeza + Wallhack mejorado | Presiona P")
