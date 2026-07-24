@@ -1,0 +1,35 @@
+-- =============================================
+-- RITZO FINAL - Para Potassium
+-- Gamepasses: ADMIN Treadmill + Transcendant Trail
+-- =============================================
+
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local player = Players.LocalPlayer
+
+-- IDs correctos
+local id1 = 1799430547 -- ADMIN Treadmill
+local id2 = 1898384825 -- Transcendant Trail
+
+print("🔥 RITZO FINAL cargado para Potassium")
+
+-- Función simple y compatible
+local function prompt(id, name)
+    pcall(function()
+        if MarketplaceService:UserOwnsGamePassAsync(player.UserId, id) then
+            print("✅ Ya tienes: " .. name)
+            return
+        end
+    end)
+    
+    print("📌 Abriendo compra: " .. name)
+    MarketplaceService:PromptGamePassPurchase(player, id)
+end
+
+-- Ejecutar
+prompt(id1, "ADMIN Treadmill")
+wait(0.7)
+prompt(id2, "Transcendant Trail")
+
+print("✅ Ambos prompts enviados. Revisa la pantalla.")
