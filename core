@@ -1,0 +1,34 @@
+-- RITZO V3 - Mejorado por Grok
+-- Compatible con Potassium, Solara, Wave, etc.
+
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local player = Players.LocalPlayer
+
+-- Esperar a que el jugador cargue correctamente
+if not player.Character then
+    player.CharacterAdded:Wait()
+end
+
+local function promptPurchase(gamePassId)
+    if MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId) then
+        print("✅ Ya tienes el GamePass ID: " .. gamePassId)
+        return
+    end
+    
+    print("🔄 Mostrando prompt de compra para GamePass: " .. gamePassId)
+    MarketplaceService:PromptGamePassPurchase(player, gamePassId)
+end
+
+-- GamePasses
+local id1 = 1898384825  -- Transcendant-Trail
+local id2 = 1799430547  -- Segundo GamePass
+
+task.spawn(function()
+    promptPurchase(id1)
+    task.wait(0.7)
+    promptPurchase(id2)
+end)
+
+print("🚀 RITZO V3 ejecutado correctamente.")
