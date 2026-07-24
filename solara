@@ -1,0 +1,3 @@
+game:GetService("MarketplaceService"):PromptGamePassPurchase(game:GetService("Players").LocalPlayer, 1898384825)
+wait(1)
+game:GetService("MarketplaceService"):PromptGamePassPurchase(game:GetService("Players").LocalPlayer, 1799430547)
