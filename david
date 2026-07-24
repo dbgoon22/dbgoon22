@@ -1,0 +1,37 @@
+-- Script para intentar la compra de dos gamepasses específicos usando sus IDs
+-- DISEÑADO PARA EJECUTARSE CON UN INYECTOR COMO POTASSIUM
+
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+local player = Players.LocalPlayer
+
+-- --- CONFIGURACIÓN ---
+-- Lista de IDs de los gamepasses que quieres comprar
+local gamePassIds = {
+    1898384825, -- ID del "Transcendant-Trail"
+    1799430547  -- ID del segundo gamepass que añadiste
+}
+
+-- --- EJECUCIÓN ---
+print("Iniciando script para comprar " .. #gamePassIds .. " gamepasses.")
+
+-- Función para intentar comprar un gamepass individual
+local function attemptPurchase(id)
+    print("Intentando comprar el gamepass con ID: " .. id)
+    local success, result = pcall(function()
+        MarketplaceService:PromptGamePassPurchase(player, id)
+    end)
+    if success then
+        print("Prompt de compra para el ID " .. id .. " enviado.")
+    else
+        warn("Error al intentar comprar el gamepass con ID " .. id .. ": " .. tostring(result))
+    end
+end
+
+-- Bucle para recorrer todos los IDs de la lista y ejecutar la compra
+for _, id in ipairs(gamePassIds) do
+    attemptPurchase(id)
+    wait(1) -- Pequeña pausa de 1 segundo entre intentos para evitar sobrecarga
+end
+
+print("Script finalizado. Revisa si las ventanas de compra aparecieron.")
