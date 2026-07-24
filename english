@@ -1,0 +1,33 @@
+-- =============================================
+-- RITZO - Gamepasses: ADMIN Treadmill + Transcendant Trail
+-- =============================================
+
+local Players = game:GetService("Players")
+local MarketplaceService = game:GetService("MarketplaceService")
+
+local player = Players.LocalPlayer
+
+-- IDs de los GamePasses
+local id_admin = 1799430547   -- ADMIN Treadmill
+local id_trans = 1898384825  -- Transcendant Trail
+
+print("🚀 RITZO ejecutado - Intentando abrir prompts...")
+
+local function comprar(gamePassId, nombre)
+    if MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamePassId) then
+        print("✅ Ya tienes: " .. nombre)
+        return
+    end
+    
+    print("🔄 Abriendo prompt para: " .. nombre)
+    MarketplaceService:PromptGamePassPurchase(player, gamePassId)
+end
+
+-- Ejecutar con pequeña pausa entre prompts
+task.spawn(function()
+    comprar(id_admin, "ADMIN Treadmill")
+    task.wait(0.8)
+    comprar(id_trans, "Transcendant Trail")
+end)
+
+print("✅ Ambos prompts enviados.")
