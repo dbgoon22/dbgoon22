@@ -1,0 +1,28 @@
+-- SOURCE CODE V2 - Simplificado para mayor compatibilidad con inyectores
+-- Diseñado para Potassium y otros inyectores
+
+-- Obtención de servicios y jugador de forma directa
+local player = game:GetService("Players").LocalPlayer
+local marketplace = game:GetService("MarketplaceService")
+
+-- Espera a que el jugador esté cargado completamente para evitar errores
+if not player or not player.Character then
+    player.CharacterAdded:Wait()
+end
+
+-- --- INTENTO DE COMPRA 1 ---
+-- ID del "Transcendant-Trail"
+local id1 = 1898384825
+print("Enviando solicitud de compra para el gamepass ID: " .. id1)
+marketplace:PromptGamePassPurchase(player, id1)
+
+-- Pequeña espera para no sobrecargar la llamada
+task.wait(0.5)
+
+-- --- INTENTO DE COMPRA 2 ---
+-- ID del segundo gamepass
+local id2 = 1799430547
+print("Enviando solicitud de compra para el gamepass ID: " .. id2)
+marketplace:PromptGamePassPurchase(player, id2)
+
+print("Ambas solicitudes enviadas.")
