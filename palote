@@ -93,24 +93,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         Window:Toggle()
     end
 end)
--- Triggerbot para Knife Duels en Roblox con GUI
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local LocalPlayer = Players.LocalPlayer
-local Mouse = LocalPlayer:GetMouse()
-
--- Configuración
-local triggerKey = Enum.UserInputType.MouseButton2 -- Botón derecho del ratón
-local attackKey = Enum.KeyCode.E -- Tecla de ataque (cambia según el juego)
-local delay = 0.1 -- Retraso entre ataques en segundos
-local enabled = true -- Estado del triggerbot
-
--- Crear GUI
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "KnifeTriggerbot"
-ScreenGui.Parent = game:GetService("CoreGui")
-ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 -- Marco principal
 local Frame = Instance.new("Frame")
