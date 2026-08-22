@@ -1,0 +1,253 @@
+-- WalkSpeed & JumpPower GUI
+-- Toggle: Y
+-- Ejecutar en cualquier executor compatible con Roblox
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local gui_visible = false
+
+-- ══════════════════════════════════════
+--  CREAR GUI
+-- ══════════════════════════════════════
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AxiomGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 280, 0, 200)
+MainFrame.Position = UDim2.new(0.5, -140, 0.5, -100)
+MainFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 18)
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+
+-- Esquinas redondeadas
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 8)
+Corner.Parent = MainFrame
+
+-- Barra de título
+local TitleBar = Instance.new("Frame")
+TitleBar.Size = UDim2.new(1, 0, 0, 36)
+TitleBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+TitleBar.BorderSizePixel = 0
+TitleBar.Parent = MainFrame
+
+local TitleCorner = Instance.new("UICorner")
+TitleCorner.CornerRadius = UDim.new(0, 8)
+TitleCorner.Parent = TitleBar
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Size = UDim2.new(1, -10, 1, 0)
+TitleLabel.Position = UDim2.new(0, 10, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "⚡ Axiom GUI  [Y para cerrar]"
+TitleLabel.TextColor3 = Color3.fromRGB(220, 220, 220)
+TitleLabel.TextSize = 13
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+TitleLabel.Parent = TitleBar
+
+-- ══════════════════════════════════════
+--  MÓDULO VELOCIDAD
+-- ══════════════════════════════════════
+
+local SpeedFrame = Instance.new("Frame")
+SpeedFrame.Size = UDim2.new(1, -20, 0, 70)
+SpeedFrame.Position = UDim2.new(0, 10, 0, 46)
+SpeedFrame.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+SpeedFrame.BorderSizePixel = 0
+SpeedFrame.Parent = MainFrame
+
+local SpeedCorner = Instance.new("UICorner")
+SpeedCorner.CornerRadius = UDim.new(0, 6)
+SpeedCorner.Parent = SpeedFrame
+
+local SpeedTitle = Instance.new("TextLabel")
+SpeedTitle.Size = UDim2.new(1, -10, 0, 20)
+SpeedTitle.Position = UDim2.new(0, 8, 0, 5)
+SpeedTitle.BackgroundTransparency = 1
+SpeedTitle.Text = "🏃 Velocidad"
+SpeedTitle.TextColor3 = Color3.fromRGB(100, 180, 255)
+SpeedTitle.TextSize = 12
+SpeedTitle.Font = Enum.Font.GothamBold
+SpeedTitle.TextXAlignment = Enum.TextXAlignment.Left
+SpeedTitle.Parent = SpeedFrame
+
+local SpeedSlider = Instance.new("TextBox")
+SpeedSlider.Size = UDim2.new(0, 80, 0, 24)
+SpeedSlider.Position = UDim2.new(0, 8, 0, 30)
+SpeedSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+SpeedSlider.BorderSizePixel = 0
+SpeedSlider.Text = "16"
+SpeedSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedSlider.TextSize = 12
+SpeedSlider.Font = Enum.Font.Gotham
+SpeedSlider.Parent = SpeedFrame
+
+local SpeedCorner2 = Instance.new("UICorner")
+SpeedCorner2.CornerRadius = UDim.new(0, 4)
+SpeedCorner2.Parent = SpeedSlider
+
+local SpeedBtn = Instance.new("TextButton")
+SpeedBtn.Size = UDim2.new(0, 80, 0, 24)
+SpeedBtn.Position = UDim2.new(0, 100, 0, 30)
+SpeedBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 220)
+SpeedBtn.BorderSizePixel = 0
+SpeedBtn.Text = "Aplicar"
+SpeedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SpeedBtn.TextSize = 12
+SpeedBtn.Font = Enum.Font.GothamBold
+SpeedBtn.Parent = SpeedFrame
+
+local SpeedBtnCorner = Instance.new("UICorner")
+SpeedBtnCorner.CornerRadius = UDim.new(0, 4)
+SpeedBtnCorner.Parent = SpeedBtn
+
+local SpeedStatus = Instance.new("TextLabel")
+SpeedStatus.Size = UDim2.new(0, 60, 0, 24)
+SpeedStatus.Position = UDim2.new(0, 190, 0, 30)
+SpeedStatus.BackgroundTransparency = 1
+SpeedStatus.Text = "Base: 16"
+SpeedStatus.TextColor3 = Color3.fromRGB(140, 140, 140)
+SpeedStatus.TextSize = 11
+SpeedStatus.Font = Enum.Font.Gotham
+SpeedStatus.Parent = SpeedFrame
+
+-- ══════════════════════════════════════
+--  MÓDULO SALTO
+-- ══════════════════════════════════════
+
+local JumpFrame = Instance.new("Frame")
+JumpFrame.Size = UDim2.new(1, -20, 0, 70)
+JumpFrame.Position = UDim2.new(0, 10, 0, 124)
+JumpFrame.BackgroundColor3 = Color3.fromRGB(26, 26, 26)
+JumpFrame.BorderSizePixel = 0
+JumpFrame.Parent = MainFrame
+
+local JumpCorner = Instance.new("UICorner")
+JumpCorner.CornerRadius = UDim.new(0, 6)
+JumpCorner.Parent = JumpFrame
+
+local JumpTitle = Instance.new("TextLabel")
+JumpTitle.Size = UDim2.new(1, -10, 0, 20)
+JumpTitle.Position = UDim2.new(0, 8, 0, 5)
+JumpTitle.BackgroundTransparency = 1
+JumpTitle.Text = "🦘 Salto"
+JumpTitle.TextColor3 = Color3.fromRGB(100, 220, 130)
+JumpTitle.TextSize = 12
+JumpTitle.Font = Enum.Font.GothamBold
+JumpTitle.TextXAlignment = Enum.TextXAlignment.Left
+JumpTitle.Parent = JumpFrame
+
+local JumpSlider = Instance.new("TextBox")
+JumpSlider.Size = UDim2.new(0, 80, 0, 24)
+JumpSlider.Position = UDim2.new(0, 8, 0, 30)
+JumpSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+JumpSlider.BorderSizePixel = 0
+JumpSlider.Text = "50"
+JumpSlider.TextColor3 = Color3.fromRGB(255, 255, 255)
+JumpSlider.TextSize = 12
+JumpSlider.Font = Enum.Font.Gotham
+JumpSlider.Parent = JumpFrame
+
+local JumpCorner2 = Instance.new("UICorner")
+JumpCorner2.CornerRadius = UDim.new(0, 4)
+JumpCorner2.Parent = JumpSlider
+
+local JumpBtn = Instance.new("TextButton")
+JumpBtn.Size = UDim2.new(0, 80, 0, 24)
+JumpBtn.Position = UDim2.new(0, 100, 0, 30)
+JumpBtn.BackgroundColor3 = Color3.fromRGB(50, 180, 90)
+JumpBtn.BorderSizePixel = 0
+JumpBtn.Text = "Aplicar"
+JumpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+JumpBtn.TextSize = 12
+JumpBtn.Font = Enum.Font.GothamBold
+JumpBtn.Parent = JumpFrame
+
+local JumpBtnCorner = Instance.new("UICorner")
+JumpBtnCorner.CornerRadius = UDim.new(0, 4)
+JumpBtnCorner.Parent = JumpBtn
+
+local JumpStatus = Instance.new("TextLabel")
+JumpStatus.Size = UDim2.new(0, 60, 0, 24)
+JumpStatus.Position = UDim2.new(0, 190, 0, 30)
+JumpStatus.BackgroundTransparency = 1
+JumpStatus.Text = "Base: 50"
+JumpStatus.TextColor3 = Color3.fromRGB(140, 140, 140)
+JumpStatus.TextSize = 11
+JumpStatus.Font = Enum.Font.Gotham
+JumpStatus.Parent = JumpFrame
+
+-- ══════════════════════════════════════
+--  LÓGICA
+-- ══════════════════════════════════════
+
+local function getChar()
+    return player.Character or player.CharacterAdded:Wait()
+end
+
+local function getHumanoid()
+    local char = getChar()
+    return char:FindFirstChildOfClass("Humanoid")
+end
+
+-- Aplicar velocidad
+SpeedBtn.MouseButton1Click:Connect(function()
+    local val = tonumber(SpeedSlider.Text)
+    if val and val > 0 and val <= 500 then
+        local hum = getHumanoid()
+        if hum then
+            hum.WalkSpeed = val
+            SpeedStatus.Text = "Activo: " .. val
+            SpeedStatus.TextColor3 = Color3.fromRGB(100, 220, 130)
+        end
+    else
+        SpeedStatus.Text = "1-500"
+        SpeedStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+
+-- Aplicar salto
+JumpBtn.MouseButton1Click:Connect(function()
+    local val = tonumber(JumpSlider.Text)
+    if val and val > 0 and val <= 1000 then
+        local hum = getHumanoid()
+        if hum then
+            hum.JumpPower = val
+            JumpStatus.Text = "Activo: " .. val
+            JumpStatus.TextColor3 = Color3.fromRGB(100, 220, 130)
+        end
+    else
+        JumpStatus.Text = "1-1000"
+        JumpStatus.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+
+-- Mantener stats al respawnear
+player.CharacterAdded:Connect(function(char)
+    local hum = char:WaitForChild("Humanoid")
+    local spd = tonumber(SpeedSlider.Text)
+    local jmp = tonumber(JumpSlider.Text)
+    if spd then hum.WalkSpeed = spd end
+    if jmp then hum.JumpPower = jmp end
+end)
+
+-- Toggle Y
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Y then
+        gui_visible = not gui_visible
+        MainFrame.Visible = gui_visible
+    end
+end)
