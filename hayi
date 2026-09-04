@@ -1,0 +1,192 @@
+-- Brainrot Stealer con GUI
+local player = game.Players.LocalPlayer
+local mouse = player:GetMouse()
+
+-- Crear GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BrainrotGUI"
+screenGui.Parent = game.CoreGui
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+-- Ventana principal
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Parent = screenGui
+mainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+mainFrame.Position = UDim2.new(0.3, 0, 0.2, 0)
+mainFrame.Size = UDim2.new(0, 400, 0, 300)
+mainFrame.Visible = false
+mainFrame.Active = true
+mainFrame.Draggable = true
+
+-- Título
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Name = "TitleLabel"
+titleLabel.Parent = mainFrame
+titleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+titleLabel.Position = UDim2.new(0, 0, 0, 0)
+titleLabel.Size = UDim2.new(1, 0, 0, 40)
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.Text = "Brainrot Stealer v1.0"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 20
+
+-- Módulo de salto
+local jumpSection = Instance.new("Frame")
+jumpSection.Name = "JumpSection"
+jumpSection.Parent = mainFrame
+jumpSection.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+jumpSection.Position = UDim2.new(0, 10, 0, 60)
+jumpSection.Size = UDim2.new(0, 180, 0, 100)
+
+local jumpLabel = Instance.new("TextLabel")
+jumpLabel.Name = "JumpLabel"
+jumpLabel.Parent = jumpSection
+jumpLabel.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+jumpLabel.Position = UDim2.new(0, 0, 0, 0)
+jumpLabel.Size = UDim2.new(1, 0, 0, 30)
+jumpLabel.Font = Enum.Font.SourceSans
+jumpLabel.Text = "Módulo de Salto"
+jumpLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+jumpLabel.TextSize = 16
+
+local jumpButton = Instance.new("TextButton")
+jumpButton.Name = "JumpButton"
+jumpButton.Parent = jumpSection
+jumpButton.BackgroundColor3 = Color3.fromRGB(75, 75, 75)
+jumpButton.Position = UDim2.new(0, 10, 0, 40)
+jumpButton.Size = UDim2.new(0, 160, 0, 40)
+jumpButton.Font = Enum.Font.SourceSans
+jumpButton.Text = "Activar Super Salto"
+jumpButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+jumpButton.TextSize = 14
+
+-- Módulo de velocidad
+local speedSection = Instance.new("Frame")
+speedSection.Name = "SpeedSection"
+speedSection.Parent = mainFrame
+speedSection.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+speedSection.Position = UDim2.new(0, 210, 0, 60)
+speedSection.Size = UDim2.new(0, 180, 0, 100)
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Name = "SpeedLabel"
+speedLabel.Parent = speedSection
+speedLabel.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+speedLabel.Position = UDim2.new(0, 0, 0, 0)
+speedLabel.Size = UDim2.new(1, 0, 0, 30)
+speedLabel.Font = Enum.Font.SourceSans
+speedLabel.Text = "Módulo de Velocidad"
+speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedLabel.TextSize = 16
+
+local speedButton = Instance.new("TextButton")
+speedButton.Name = "SpeedButton"
+speedButton.Parent = speedSection
+speedButton.BackgroundColor3 = Color3.fromRGB(75, 75, 75)
+speedButton.Position = UDim2.new(0, 10, 0, 40)
+speedButton.Size = UDim2.new(0, 160, 0, 40)
+speedButton.Font = Enum.Font.SourceSans
+speedButton.Text = "Activar Super Velocidad"
+speedButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedLabel.TextSize = 14
+
+-- Auto Join Section
+local autoJoinSection = Instance.new("Frame")
+autoJoinSection.Name = "AutoJoinSection"
+autoJoinSection.Parent = mainFrame
+autoJoinSection.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+autoJoinSection.Position = UDim2.new(0, 10, 0, 170)
+autoJoinSection.Size = UDim2.new(0, 380, 0, 100)
+
+local autoJoinLabel = Instance.new("TextLabel")
+autoJoinLabel.Name = "AutoJoinLabel"
+autoJoinLabel.Parent = autoJoinSection
+autoJoinLabel.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+autoJoinLabel.Position = UDim2.new(0, 0, 0, 0)
+autoJoinLabel.Size = UDim2.new(1, 0, 0, 30)
+autoJoinLabel.Font = Enum.Font.SourceSans
+autoJoinLabel.Text = "AUTO JOIN - Brainrots de 200M+/s"
+autoJoinLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoJoinLabel.TextSize = 16
+
+local autoJoinButton = Instance.new("TextButton")
+autoJoinButton.Name = "AutoJoinButton"
+autoJoinButton.Parent = autoJoinSection
+autoJoinButton.BackgroundColor3 = Color3.fromRGB(75, 75, 75)
+autoJoinButton.Position = UDim2.new(0, 10, 0, 40)
+autoJoinButton.Size = UDim2.new(0, 160, 0, 40)
+autoJoinButton.Font = Enum.Font.SourceSans
+autoJoinButton.Text = "Buscar Servidores"
+autoJoinButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoJoinButton.TextSize = 14
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Parent = autoJoinSection
+statusLabel.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+statusLabel.Position = UDim2.new(0, 180, 0, 40)
+statusLabel.Size = UDim2.new(0, 190, 0, 40)
+statusLabel.Font = Enum.Font.SourceSans
+statusLabel.Text = "Estado: Inactivo"
+statusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+statusLabel.TextSize = 14
+
+-- Funcionalidad
+local jumpEnabled = false
+local speedEnabled = false
+local autoJoinEnabled = false
+
+-- Función para activar/desactivar super salto
+local function toggleJump()
+    jumpEnabled = not jumpEnabled
+    if jumpEnabled then
+        jumpButton.Text = "Desactivar Super Salto"
+        jumpButton.BackgroundColor3 = Color3.fromRGB(85, 170, 85)
+        
+        -- Aumentar la altura del salto
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.JumpPower = 100
+        end
+    else
+        jumpButton.Text = "Activar Super Salto"
+        jumpButton.BackgroundColor3 = Color3.fromRGB(75, 75, 75)
+        
+        -- Restaurar salto normal
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.JumpPower = 50
+        end
+    end
+end
+
+-- Función para activar/desactivar super velocidad
+local function toggleSpeed()
+    speedEnabled = not speedEnabled
+    if speedEnabled then
+        speedButton.Text = "Desactivar Super Velocidad"
+        speedButton.BackgroundColor3 = Color3.fromRGB(85, 170, 85)
+        
+        -- Aumentar la velocidad
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.WalkSpeed = 50
+        end
+    else
+        speedButton.Text = "Activar Super Velocidad"
+        speedButton.BackgroundColor3 = Color3.fromRGB(75, 75, 75)
+        
+        -- Restaurar velocidad normal
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.WalkSpeed = 16
+        end
+    end
+end
+
+-- Función para buscar y unirse a servidores con brainrots de 200M+/s
+local function searchAndJoinServers()
+    autoJoinEnabled = not autoJoinEnabled
+    if autoJoinEnabled then
+        autoJoinButton.Text = "Detener Búsqueda"
+        autoJoinButton.BackgroundColor3 = Color3.fromRGB(85, 170, 85)
+        statusLabel.Text = "Estado: Buscando..."
+        
+        -- Simulación de búsqueda de servidores
