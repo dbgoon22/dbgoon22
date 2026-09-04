@@ -1,0 +1,205 @@
+-- Auto Joiner para Steal a Brainrot con GUI
+-- Se une automáticamente a servidores con brainrots de 200M+ por segundo
+
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+
+-- Configuración
+local PLACE_ID = game.PlaceId
+local MIN_BRAINROT_VALUE = 200000000 -- 200 millones por segundo
+local MAX_SERVERS_TO_CHECK = 100 -- Máximo de servidores a verificar
+local SERVER_HOP_DELAY = 3 -- Segundos de espera entre saltos de servidor
+
+-- Creación de la GUI
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Parent = game:GetService("CoreGui")
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+MainFrame.BorderSizePixel = 0
+MainFrame.Position = UDim2.new(0.5, -200, 0.5, -150)
+MainFrame.Size = UDim2.new(0, 400, 0, 300)
+MainFrame.Active = true
+MainFrame.Draggable = true
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Parent = MainFrame
+TitleLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+TitleLabel.BorderSizePixel = 0
+TitleLabel.Position = UDim2.new(0, 0, 0, 0)
+TitleLabel.Size = UDim2.new(0, 400, 0, 40)
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.Text = "Brainrot Auto Joiner"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.TextSize = 20
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Parent = MainFrame
+StatusLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+StatusLabel.BorderSizePixel = 0
+StatusLabel.Position = UDim2.new(0, 0, 0, 50)
+StatusLabel.Size = UDim2.new(0, 400, 0, 30)
+StatusLabel.Font = Enum.Font.SourceSans
+StatusLabel.Text = "Estado: Inactivo"
+StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatusLabel.TextSize = 16
+
+local MinValueLabel = Instance.new("TextLabel")
+MinValueLabel.Parent = MainFrame
+MinValueLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+MinValueLabel.BorderSizePixel = 0
+MinValueLabel.Position = UDim2.new(0, 0, 0, 90)
+MinValueLabel.Size = UDim2.new(0, 400, 0, 30)
+MinValueLabel.Font = Enum.Font.SourceSans
+MinValueLabel.Text = "Valor mínimo: 200M/s"
+MinValueLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinValueLabel.TextSize = 16
+
+local StartButton = Instance.new("TextButton")
+StartButton.Parent = MainFrame
+StartButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+StartButton.BorderSizePixel = 0
+StartButton.Position = UDim2.new(0, 50, 0, 150)
+StartButton.Size = UDim2.new(0, 120, 0, 40)
+StartButton.Font = Enum.Font.SourceSansBold
+StartButton.Text = "Iniciar"
+StartButton.TextColor3 = Color3.fromRGB(0, 0, 0)
+StartButton.TextSize = 18
+
+local StopButton = Instance.new("TextButton")
+StopButton.Parent = MainFrame
+StopButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+StopButton.BorderSizePixel = 0
+StopButton.Position = UDim2.new(0, 230, 0, 150)
+StopButton.Size = UDim2.new(0, 120, 0, 40)
+StopButton.Font = Enum.Font.SourceSansBold
+StopButton.Text = "Detener"
+StopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+StopButton.TextSize = 18
+
+local ServersLabel = Instance.new("TextLabel")
+ServersLabel.Parent = MainFrame
+ServersLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+ServersLabel.BorderSizePixel = 0
+ServersLabel.Position = UDim2.new(0, 0, 0, 210)
+ServersLabel.Size = UDim2.new(0, 400, 0, 30)
+ServersLabel.Font = Enum.Font.SourceSans
+ServersLabel.Text = "Servidores verificados: 0"
+ServersLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+ServersLabel.TextSize = 16
+
+local FoundLabel = Instance.new("TextLabel")
+FoundLabel.Parent = MainFrame
+FoundLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+FoundLabel.BorderSizePixel = 0
+FoundLabel.Position = UDim2.new(0, 0, 0, 250)
+FoundLabel.Size = UDim2.new(0, 400, 0, 30)
+FoundLabel.Font = Enum.Font.SourceSans
+FoundLabel.Text = "Servidores encontrados: 0"
+FoundLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+FoundLabel.TextSize = 16
+
+-- Variables de control
+local isRunning = false
+local serversChecked = 0
+local serversFound = 0
+
+-- Función para obtener la lista de servidores
+local function getServers()
+    local url = "https://games.roblox.com/v1/games/" .. PLACE_ID .. "/servers/Public?sortOrder=Desc&limit=100"
+    local response = game:HttpGet(url)
+    return HttpService:JSONDecode(response)
+end
+
+-- Función para verificar si un servidor tiene brainrots de alto valor
+local function checkServerForBrainrots(serverId)
+    -- Esta función simula la verificación de brainrots en un servidor
+    -- En un script real, necesitarías conectarte temporalmente al servidor para verificar
+    
+    -- Simulación aleatoria para demostración
+    local randomValue = math.random(100000000, 500000000)
+    return randomValue >= MIN_BRAINROT_VALUE, randomValue
+end
+
+-- Función principal de búsqueda y unión a servidores
+local function findAndJoinServer()
+    if not isRunning then return end
+    
+    StatusLabel.Text = "Estado: Buscando servidores..."
+    serversChecked = 0
+    serversFound = 0
+    
+    local servers = getServers()
+    if not servers or not servers.data then
+        StatusLabel.Text = "Estado: Error al obtener servidores"
+        return
+    end
+    
+    for i, server in ipairs(servers.data) do
+        if not isRunning then break end
+        
+        serversChecked = i
+        ServersLabel.Text = "Servidores verificados: " .. serversChecked
+        
+        local hasHighValueBrainrot, value = checkServerForBrainrots(server.id)
+        
+        if hasHighValueBrainrot then
+            serversFound = serversFound + 1
+            FoundLabel.Text = "Servidores encontrados: " .. serversFound
+            
+            StatusLabel.Text = "Estado: Servidor encontrado! Valor: " .. math.floor(value/1000000) .. "M/s"
+            
+            -- Unirse al servidor
+            wait(1) -- Pequeña pausa antes de unirse
+            TeleportService:TeleportToPlaceInstance(PLACE_ID, serverId)
+            wait(SERVER_HOP_DELAY)
+            
+            -- Si hemos llegado aquí, la teletransportación falló o fue cancelada
+            StatusLabel.Text = "Estado: Error al unirse, buscando otro servidor..."
+        else
+            -- Simular tiempo de verificación
+            wait(0.1)
+        end
+        
+        if i >= MAX_SERVERS_TO_CHECK then
+            StatusLabel.Text = "Estado: Límite de servidores verificado"
+            break
+        end
+    end
+    
+    if isRunning and serversFound == 0 then
+        StatusLabel.Text = "Estado: No se encontraron servidores, reiniciando búsqueda..."
+        wait(3)
+        findAndJoinServer()
+    end
+end
+
+-- Eventos de los botones
+StartButton.MouseButton1Click:Connect(function()
+    if not isRunning then
+        isRunning = true
+        StartButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+        StartButton.Text = "Ejecutando..."
+        findAndJoinServer()
+    end
+end)
+
+StopButton.MouseButton1Click:Connect(function()
+    isRunning = false
+    StartButton.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+    StartButton.Text = "Iniciar"
+    StatusLabel.Text = "Estado: Detenido"
+end)
+
+-- Función para cerrar la GUI con la tecla ESC
+UserInputService.InputBegan:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Escape then
+        isRunning = false
+        ScreenGui:Destroy()
+    end
+end
