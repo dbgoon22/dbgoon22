@@ -1,0 +1,98 @@
+local player = game.Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Módulo 1: Salto mejorado
+local jumpModule = {
+    enabled = false,
+    power = 50 -- Ajusta este valor para saltar más alto
+}
+
+-- Módulo 2: Velocidad mejorada
+local speedModule = {
+    enabled = false,
+    speed = 50 -- Ajusta este valor para correr más rápido
+}
+
+-- Función para activar/desactivar el salto mejorado
+function toggleJump()
+    jumpModule.enabled = not jumpModule.enabled
+    if jumpModule.enabled then
+        character.Humanoid.JumpPower = jumpModule.power
+        print("Salto mejorado activado")
+    else
+        character.Humanoid.JumpPower = 50 -- Valor predeterminado
+        print("Salto mejorado desactivado")
+    end
+end
+
+-- Función para activar/desactivar la velocidad mejorada
+function toggleSpeed()
+    speedModule.enabled = not speedModule.enabled
+    if speedModule.enabled then
+        character.Humanoid.WalkSpeed = speedModule.speed
+        print("Velocidad mejorada activada")
+    else
+        character.Humanoid.WalkSpeed = 16 -- Valor predeterminado
+        print("Velocidad mejorada desactivada")
+    end
+end
+
+-- Función para Auto Join a servidores con brainrots de 200M+/segundo
+function autoJoinBrainrotServers()
+    -- Esta función buscaría servidores públicos con brainrots que den 200M+/segundo
+    -- Nota: Esta es una simulación, la implementación real requeriría API de Roblox
+    
+    print("Buscando servidores con brainrots de 200M+/segundo...")
+    
+    -- Simulación de búsqueda de servidores
+    local foundServers = {
+        {name = "Brainrot Paradise 200M/s", id = 123456789},
+        {name = "Ultra Brainrot 300M/s", id = 987654321},
+        {name = "Mega Brainrot Farm 500M/s", id = 555555555}
+    }
+    
+    -- Unirse al primer servidor encontrado
+    if #foundServers > 0 then
+        print("Uniéndose al servidor: " .. foundServers[1].name)
+        game:GetService("TeleportService"):Teleport(foundServers[1].id)
+    else
+        print("No se encontraron servidores con brainrots de 200M+/segundo")
+    end
+end
+
+-- Interfaz de usuario simple
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 300, 0, 200)
+mainFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
+mainFrame.BackgroundColor3 = Color3.new(0, 0, 0)
+mainFrame.BorderSizePixel = 1
+mainFrame.Parent = screenGui
+
+-- Botón para activar/desactivar salto
+local jumpButton = Instance.new("TextButton")
+jumpButton.Size = UDim2.new(0, 280, 0, 40)
+jumpButton.Position = UDim2.new(0, 10, 0, 10)
+jumpButton.Text = "Activar Salto Mejorado"
+jumpButton.Parent = mainFrame
+jumpButton.MouseButton1Click:Connect(toggleJump)
+
+-- Botón para activar/desactivar velocidad
+local speedButton = Instance.new("TextButton")
+speedButton.Size = UDim2.new(0, 280, 0, 40)
+speedButton.Position = UDim2.new(0, 10, 0, 60)
+speedButton.Text = "Activar Velocidad Mejorada"
+speedButton.Parent = mainFrame
+speedButton.MouseButton1Click:Connect(toggleSpeed)
+
+-- Botón para Auto Join
+local autoJoinButton = Instance.new("TextButton")
+autoJoinButton.Size = UDim2.new(0, 280, 0, 40)
+autoJoinButton.Position = UDim2.new(0, 10, 0, 110)
+autoJoinButton.Text = "AUTO JOIN Brainrot 200M+/s"
+autoJoinButton.Parent = mainFrame
+autoJoinButton.MouseButton1Click:Connect(autoJoinBrainrotServers)
+
+print("Brainrot Hack cargado correctamente")
