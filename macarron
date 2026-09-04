@@ -1,0 +1,79 @@
+-- Crear una GUI
+local gui = Instance.new("ScreenGui")
+gui.Name = "BrainrotCheat"
+gui.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
+
+-- Crear un botón para abrir la GUI
+local toggle = Instance.new("TextButton")
+toggle.Name = "ToggleCheat"
+toggle.Size = UDim2.new(0, 200, 0, 50)
+toggle.Position = UDim2.new(0.5, -100, 0.5, -25)
+toggle.Text = "P para abrir/cerrar"
+toggle.Parent = gui
+
+-- Variable para controlar el estado de la GUI
+local isGuiOpen = false
+
+-- Función para abrir/cerrar la GUI
+toggle.Activated:Connect(function()
+    isGuiOpen = not isGuiOpen
+    gui.Enabled = isGuiOpen
+end)
+
+-- Crear un TextBox para ajustar la altura del salto
+local jumpHeight = Instance.new("TextBox")
+jumpHeight.Name = "JumpHeight"
+jumpHeight.Size = UDim2.new(0, 200, 0, 30)
+jumpHeight.Position = UDim2.new(0.5, -100, 0.6, 0)
+jumpHeight.Text = "Altura del salto"
+jumpHeight.Parent = gui
+
+-- Crear un TextBox para ajustar la velocidad de carrera
+local runSpeed = Instance.new("TextBox")
+runSpeed.Name = "RunSpeed"
+runSpeed.Size = UDim2.new(0, 200, 0, 30)
+runSpeed.Position = UDim2.new(0.5, -100, 0.7, 0)
+runSpeed.Text = "Velocidad de carrera"
+runSpeed.Parent = gui
+
+-- Crear un botón para auto-join a servidores con Brainrot
+local autoJoin = Instance.new("TextButton")
+autoJoin.Name = "AutoJoin"
+autoJoin.Size = UDim2.new(0, 200, 0, 50)
+autoJoin.Position = UDim2.new(0.5, -100, 0.8, 0)
+autoJoin.Text = "Auto Join Brainrot"
+autoJoin.Parent = gui
+
+-- Función para ajustar la altura del salto
+jumpHeight.FocusLost:Connect(function()
+    local height = tonumber(jumpHeight.Text)
+    if height then
+        game.Players.LocalPlayer.Character.Humanoid.JumpPower = height
+    end
+end)
+
+-- Función para ajustar la velocidad de carrera
+runSpeed.FocusLost:Connect(function()
+    local speed = tonumber(runSpeed.Text)
+    if speed then
+        game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = speed
+    end
+end)
+
+-- Función para auto-join a servidores con Brainrot
+autoJoin.Activated:Connect(function()
+    for _, server in ipairs(game:GetService("TeleportService"):GetServers()) do
+        if server:FindFirstChild("Data") and server.Data:FindFirstChild("Brainrot") and server.Data.Brainrot.Value > 200000000 then
+            game:GetService("TeleportService"):Teleport(server.Id, game.Players.LocalPlayer)
+            break
+        end
+    end
+end)
+
+-- Función para abrir/cerrar la GUI con la tecla P
+game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.P then
+        isGuiOpen = not isGuiOpen
+        gui.Enabled = isGuiOpen
+    end
+end)
