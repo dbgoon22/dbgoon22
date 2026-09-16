@@ -1,0 +1,490 @@
+-- language: Lua | Steal a Brainrot Finder v3 | PlaceId 109983668079237
+-- T = toggle GUI | Auto Join = hop + scan hasta targets
+-- v3: maxPlayers = 8 (dato real del juego). anti-bot real.
+
+local Players           = game:GetService("Players")
+local TeleportService   = game:GetService("TeleportService")
+local HttpService       = game:GetService("HttpService")
+local UserInputService  = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+local PlaceId     = 109983668079237
+local MAX_PLAYERS = 8          -- hard value del juego actual
+
+local TARGETS = {
+    "Dragon Cannelloni", "Arcadragon", "Fragrama and Chocrama", "La Casa Boo",
+    "Los Sekolahs", "Foxini Lanternini", "Kalika Bros", "Pancake and Syrup",
+    "La Secret Combinasion", "Antonio", "Los Amigos", "Fortunu and Cashuru",
+    "Reinito Sleighito", "Rosey and Teddy", "Popcuru and Fizzuru", "Bunny and Eggy",
+    "Celestial Pegasus", "Venuspino", "Jelly Moby", "Hydra Bunny", "Kraken",
+    "La Supreme Combinasion", "Digi Narwhal", "Love Love Bear", "Signore Carapace",
+    "Dragon Gingerini", "Hydra Dragon Cannelloni", "Dragon Aquanini", "Griffin",
+    "Skibidi Toilet", "John Pork", "Meowl", "Strawberry Elephant",
+    "Headless Horseman", "Spyder Elephant"
+}
+
+local TARGET_SET = {}
+for _, n in ipairs(TARGETS) do
+    TARGET_SET[string.lower(n)] = n
+end
+
+local autoJoin       = false
+local hopping        = false
+local foundSomething = false
+local guiVisible     = true
+local recentJobs     = {}
+local MAX_RECENT     = 40
+
+-- anti-bot real para un juego de 8 slots
+local MIN_PLAYERS    = 3       -- por debajo de esto casi siempre es farm/bot
+local PREFER_MIN     = 5
+local PREFER_MAX     = 7
+
+----------------------------------------------------------------
+-- GUI
+----------------------------------------------------------------
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BrainrotFinderV3"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+pcall(function() ScreenGui.Parent = game:GetService("CoreGui") end)
+if not ScreenGui.Parent then ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+
+local Main = Instance.new("Frame")
+Main.Size = UDim2.new(0, 340, 0, 240)
+Main.Position = UDim2.new(0.5, -170, 0.5, -120)
+Main.BackgroundColor3 = Color3.fromRGB(14, 14, 18)
+Main.BorderSizePixel = 0
+Main.Parent = ScreenGui
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 10)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -20, 0, 28)
+Title.Position = UDim2.new(0, 10, 0, 8)
+Title.BackgroundTransparency = 1
+Title.Text = "Brainrot Finder v3"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 18
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Main
+
+local Status = Instance.new("TextLabel")
+Status.Name = "Status"
+Status.Size = UDim2.new(1, -20, 0, 56)
+Status.Position = UDim2.new(0, 10, 0, 38)
+Status.BackgroundTransparency = 1
+Status.Text = "Listo. Solo servidores reales (3-7 jugadores)."
+Status.TextColor3 = Color3.fromRGB(170, 170, 180)
+Status.Font = Enum.Font.Gotham
+Status.TextSize = 13
+Status.TextWrapped = true
+Status.TextXAlignment = Enum.TextXAlignment.Left
+Status.TextYAlignment = Enum.TextYAlignment.Top
+Status.Parent = Main
+
+local AutoBtn = Instance.new("TextButton")
+AutoBtn.Size = UDim2.new(1, -20, 0, 34)
+AutoBtn.Position = UDim2.new(0, 10, 0, 105)
+AutoBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+AutoBtn.Text = "Auto Join: OFF"
+AutoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoBtn.Font = Enum.Font.GothamBold
+AutoBtn.TextSize = 14
+AutoBtn.Parent = Main
+Instance.new("UICorner", AutoBtn).CornerRadius = UDim.new(0, 8)
+
+local HopBtn = Instance.new("TextButton")
+HopBtn.Size = UDim2.new(0.48, -8, 0, 32)
+HopBtn.Position = UDim2.new(0, 10, 0, 148)
+HopBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+HopBtn.Text = "Hop 1 vez"
+HopBtn.TextColor3 = Color3.fromRGB(220, 220, 230)
+HopBtn.Font = Enum.Font.Gotham
+HopBtn.TextSize = 13
+HopBtn.Parent = Main
+Instance.new("UICorner", HopBtn).CornerRadius = UDim.new(0, 8)
+
+local ScanBtn = Instance.new("TextButton")
+ScanBtn.Size = UDim2.new(0.48, -8, 0, 32)
+ScanBtn.Position = UDim2.new(0.52, 0, 0, 148)
+ScanBtn.BackgroundColor3 = Color3.fromRGB(30, 30, 38)
+ScanBtn.Text = "Scan ahora"
+ScanBtn.TextColor3 = Color3.fromRGB(220, 220, 230)
+ScanBtn.Font = Enum.Font.Gotham
+ScanBtn.TextSize = 13
+ScanBtn.Parent = Main
+Instance.new("UICorner", ScanBtn).CornerRadius = UDim.new(0, 8)
+
+local Hint = Instance.new("TextLabel")
+Hint.Size = UDim2.new(1, -20, 0, 20)
+Hint.Position = UDim2.new(0, 10, 1, -26)
+Hint.BackgroundTransparency = 1
+Hint.Text = "T = GUI  |  max 8  |  anti-bot 3-7"
+Hint.TextColor3 = Color3.fromRGB(100, 100, 110)
+Hint.Font = Enum.Font.Gotham
+Hint.TextSize = 11
+Hint.Parent = Main
+
+do
+    local dragging, dragStart, startPos
+    Main.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = Main.Position
+        end
+    end)
+    Main.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local d = input.Position - dragStart
+            Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+        end
+    end)
+end
+
+----------------------------------------------------------------
+-- helpers
+----------------------------------------------------------------
+local function setStatus(txt, color)
+    Status.Text = txt
+    if color then Status.TextColor3 = color end
+end
+
+local function addRecent(jobId)
+    table.insert(recentJobs, 1, jobId)
+    if #recentJobs > MAX_RECENT then table.remove(recentJobs) end
+end
+
+local function isRecent(jobId)
+    for _, id in ipairs(recentJobs) do
+        if id == jobId then return true end
+    end
+    return false
+end
+
+local VALUE_NAMES = {
+    "PricePerSecond", "Value", "Income", "Generation", "CashPerSecond",
+    "MoneyPerSecond", "Earn", "Rate", "IncomePerSecond", "Cash", "Money", "Gen"
+}
+
+local function hasIncomeSignal(obj)
+    for _, name in ipairs(VALUE_NAMES) do
+        local v = obj:FindFirstChild(name, true)
+        if v and (v:IsA("NumberValue") or v:IsA("IntValue") or v:IsA("StringValue")) then
+            return true
+        end
+    end
+    for _, d in ipairs(obj:GetDescendants()) do
+        if d:IsA("BillboardGui") or d:IsA("TextLabel") then
+            local t = string.lower(tostring(d.Text or ""))
+            if t:find("/s") or t:find("m/s") or t:find("k/s") or t:find("b/s") or t:find("/sec") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function exactOrStrictMatch(name)
+    local lower = string.lower(name)
+    if TARGET_SET[lower] then return TARGET_SET[lower] end
+    for key, original in pairs(TARGET_SET) do
+        if #key >= 6 and lower:find(key, 1, true) then
+            return original
+        end
+    end
+    return nil
+end
+
+local function collectCandidates()
+    local roots = {}
+    -- estructura real de SAB: Bases / Plots / player bases
+    for _, name in ipairs({"Bases", "Plots", "Brains", "Animals", "Units", "Brainrots", "Pets"}) do
+        local f = workspace:FindFirstChild(name)
+        if f then table.insert(roots, f) end
+    end
+    -- también bases individuales de jugadores
+    for _, plr in ipairs(Players:GetPlayers()) do
+        local base = workspace:FindFirstChild(plr.Name) or workspace:FindFirstChild(plr.Name .. "'s Base")
+        if base then table.insert(roots, base) end
+    end
+    if #roots == 0 then
+        table.insert(roots, workspace)
+    end
+    return roots
+end
+
+local function scanServer()
+    local found, seen = {}, {}
+
+    local function consider(obj)
+        if not (obj:IsA("Model") or obj:IsA("BasePart") or obj:IsA("Folder")) then return end
+        local match = exactOrStrictMatch(obj.Name)
+        if not match or seen[match] then return end
+
+        local inBase = false
+        local p = obj.Parent
+        while p and p ~= workspace do
+            local pn = string.lower(p.Name)
+            if pn:find("base") or pn:find("plot") or pn:find("podium") or pn:find("slot") or pn:find("stand") or pn:find("floor") then
+                inBase = true
+                break
+            end
+            p = p.Parent
+        end
+
+        if hasIncomeSignal(obj) or inBase then
+            seen[match] = true
+            table.insert(found, match)
+        end
+    end
+
+    for _, root in ipairs(collectCandidates()) do
+        for _, obj in ipairs(root:GetDescendants()) do
+            consider(obj)
+        end
+        for _, child in ipairs(root:GetChildren()) do
+            consider(child)
+        end
+    end
+    return found
+end
+
+-- quick bot check after join: muchos jugadores con displayName default / bajo movimiento = farm
+local function looksLikeBotServer()
+    local count = 0
+    local botScore = 0
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then
+            count += 1
+            local name = string.lower(plr.DisplayName or plr.Name)
+            -- patrones típicos de bots en SAB
+            if name:find("player") or name:find("user") or name:match("^%w+%d+$") then
+                botScore += 1
+            end
+            local char = plr.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum and hum.MoveDirection.Magnitude < 0.05 then
+                    botScore += 0.4
+                end
+            end
+        end
+    end
+    if count == 0 then return true end
+    return (botScore / count) > 0.65
+end
+
+----------------------------------------------------------------
+-- server list (correcto para max 8)
+----------------------------------------------------------------
+local function getServers(maxPages)
+    maxPages = maxPages or 10
+    local servers = {}
+    local cursor = ""
+    local pages = 0
+
+    while pages < maxPages do
+        pages += 1
+        local url = "https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Desc&limit=100"
+        if cursor ~= "" then
+            url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+        end
+
+        local ok, data = pcall(function()
+            return HttpService:JSONDecode(game:HttpGet(url))
+        end)
+
+        if not ok or type(data) ~= "table" or not data.data then break end
+
+        for _, s in ipairs(data.data) do
+            if s.playing and s.maxPlayers and s.id
+                and s.playing >= MIN_PLAYERS
+                and s.playing < MAX_PLAYERS
+                and s.id ~= game.JobId
+                and not isRecent(s.id)
+            then
+                table.insert(servers, {
+                    id = s.id,
+                    playing = s.playing,
+                    max = s.maxPlayers or MAX_PLAYERS
+                })
+            end
+        end
+
+        if not data.nextPageCursor or data.nextPageCursor == "" then break end
+        cursor = data.nextPageCursor
+        task.wait(0.1)
+    end
+
+    -- score: 5-7 es la zona real. 3-4 es aceptable. full se descarta ya.
+    table.sort(servers, function(a, b)
+        local function score(s)
+            if s.playing >= PREFER_MIN and s.playing <= PREFER_MAX then
+                return 1000 + s.playing
+            end
+            return s.playing * 10
+        end
+        return score(a) > score(b)
+    end)
+
+    return servers
+end
+
+----------------------------------------------------------------
+-- hop + load
+----------------------------------------------------------------
+local function waitForLoad(timeout)
+    timeout = timeout or 18
+    local t0 = tick()
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    if not char:WaitForChild("HumanoidRootPart", 9) then return false end
+
+    while tick() - t0 < timeout do
+        local has = workspace:FindFirstChild("Bases")
+            or workspace:FindFirstChild("Plots")
+            or #workspace:GetChildren() > 12
+        if has then
+            task.wait(2.8)
+            return true
+        end
+        task.wait(0.3)
+    end
+    return false
+end
+
+local function hop()
+    if hopping then return end
+    hopping = true
+    setStatus("Buscando servidores reales (3-7 jugadores)...", Color3.fromRGB(255, 200, 80))
+
+    local servers = getServers(10)
+    if #servers == 0 then
+        setStatus("Sin servidores válidos. Reintento en 5s...", Color3.fromRGB(255, 120, 120))
+        hopping = false
+        task.wait(5)
+        return
+    end
+
+    local target = servers[1]
+    setStatus(string.format("Hop → %d/%d jugadores", target.playing, target.max), Color3.fromRGB(255, 200, 80))
+    addRecent(target.id)
+
+    local ok, err = pcall(function()
+        TeleportService:TeleportToPlaceInstance(PlaceId, target.id, LocalPlayer)
+    end)
+    if not ok then
+        setStatus("Teleport falló: " .. tostring(err), Color3.fromRGB(255, 100, 100))
+        task.wait(2)
+        pcall(function()
+            TeleportService:TeleportToPlaceInstance(PlaceId, target.id, LocalPlayer)
+        end)
+    end
+    hopping = false
+end
+
+local function checkCurrentServer()
+    if not waitForLoad(16) then
+        setStatus("Carga incompleta → hop", Color3.fromRGB(255, 160, 80))
+        return false
+    end
+
+    -- anti-bot post-join
+    if looksLikeBotServer() then
+        setStatus("Server de bots detectado → saltando", Color3.fromRGB(255, 140, 80))
+        return false
+    end
+
+    local found = scanServer()
+    if #found > 0 then
+        foundSomething = true
+        autoJoin = false
+        AutoBtn.Text = "Auto Join: OFF"
+        AutoBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+
+        local list = table.concat(found, ", ")
+        setStatus("¡ENCONTRADO!\n" .. list, Color3.fromRGB(80, 255, 130))
+
+        local notif = Instance.new("TextLabel")
+        notif.Size = UDim2.new(0, 420, 0, 70)
+        notif.Position = UDim2.new(0.5, -210, 0.12, 0)
+        notif.BackgroundColor3 = Color3.fromRGB(16, 50, 26)
+        notif.Text = "BRAINROT DETECTADO\n" .. list
+        notif.TextColor3 = Color3.fromRGB(110, 255, 140)
+        notif.Font = Enum.Font.GothamBold
+        notif.TextSize = 15
+        notif.TextWrapped = true
+        notif.Parent = ScreenGui
+        Instance.new("UICorner", notif).CornerRadius = UDim.new(0, 8)
+        task.delay(12, function() if notif then notif:Destroy() end end)
+        return true
+    end
+    return false
+end
+
+----------------------------------------------------------------
+-- loops + buttons
+----------------------------------------------------------------
+task.spawn(function()
+    while true do
+        if autoJoin and not hopping and not foundSomething then
+            if not checkCurrentServer() then
+                hop()
+                task.wait(7)
+            end
+        end
+        task.wait(0.85)
+    end
+end)
+
+AutoBtn.MouseButton1Click:Connect(function()
+    autoJoin = not autoJoin
+    foundSomething = false
+    if autoJoin then
+        AutoBtn.Text = "Auto Join: ON"
+        AutoBtn.BackgroundColor3 = Color3.fromRGB(26, 80, 44)
+        setStatus("Auto Join ON · solo 3-7 jugadores · anti-bot activo", Color3.fromRGB(100, 255, 140))
+    else
+        AutoBtn.Text = "Auto Join: OFF"
+        AutoBtn.BackgroundColor3 = Color3.fromRGB(36, 36, 44)
+        setStatus("Auto Join detenido.", Color3.fromRGB(170, 170, 180))
+    end
+end)
+
+HopBtn.MouseButton1Click:Connect(function()
+    if not hopping then hop() end
+end)
+
+ScanBtn.MouseButton1Click:Connect(function()
+    setStatus("Escaneando...", Color3.fromRGB(200, 200, 100))
+    local found = scanServer()
+    if #found > 0 then
+        setStatus("Encontrados:\n" .. table.concat(found, ", "), Color3.fromRGB(80, 255, 130))
+    else
+        setStatus("Nada de la lista aquí.", Color3.fromRGB(200, 160, 100))
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.T then
+        guiVisible = not guiVisible
+        Main.Visible = guiVisible
+    end
+end)
+
+task.spawn(function()
+    task.wait(3)
+    if waitForLoad(12) then
+        local found = scanServer()
+        if #found > 0 then
+            setStatus("Ya hay targets:\n" .. table.concat(found, ", "), Color3.fromRGB(80, 255, 130))
+        end
+    end
+end)
+
+print("[Brainrot Finder v3] maxPlayers=8 | anti-bot 3-7 | listo")
