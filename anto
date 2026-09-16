@@ -1,0 +1,399 @@
+-- language: Lua, file: sab_100m_finder.lua, target: Steal a Brainrot (PlaceId 109983668079237), Volt
+-- *local scan de Plots/AnimalPodiums + hop de servers públicos; value path se re-deriva si el juego cambia*
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local TS = game:GetService("TeleportService")
+local HS = game:GetService("HttpService")
+local RS = game:GetService("RunService")
+local LP = Players.LocalPlayer
+local PLACE_ID = 109983668079237
+local MIN_VALUE = 100000000 -- 100M
+
+getgenv().SAB_Finder = getgenv().SAB_Finder or {
+    Speed = 50,
+    AutoJoin = false,
+    Scanning = false,
+    FoundServers = {}, -- {jobId, players, maxVal, name}
+    GuiVisible = false
+}
+
+local function formatVal(n)
+    if n >= 1e9 then return string.format("%.2fB", n / 1e9) end
+    if n >= 1e6 then return string.format("%.1fM", n / 1e6) end
+    if n >= 1e3 then return string.format("%.0fK", n / 1e3) end
+    return tostring(n)
+end
+
+-- parse income from NumberValue / StringValue / Billboard / Name
+local function extractValue(obj)
+    local v = 0
+    local function tryNum(x)
+        if typeof(x) == "number" then return x end
+        if typeof(x) == "string" then
+            local s = x:lower():gsub(",", ""):gsub("%$", ""):gsub("/s", ""):gsub("%s", "")
+            local mul = 1
+            if s:find("b") then mul = 1e9; s = s:gsub("b", "") end
+            if s:find("m") then mul = 1e6; s = s:gsub("m", "") end
+            if s:find("k") then mul = 1e3; s = s:gsub("k", "") end
+            local n = tonumber(s)
+            return n and n * mul or 0
+        end
+        return 0
+    end
+
+    for _, d in ipairs(obj:GetDescendants()) do
+        if d:IsA("NumberValue") or d:IsA("IntValue") then
+            local n = d.Value
+            if n >= MIN_VALUE then return n end
+            if n > v then v = n end
+        elseif d:IsA("StringValue") then
+            local n = tryNum(d.Value)
+            if n >= MIN_VALUE then return n end
+            if n > v then v = n end
+        elseif d:IsA("TextLabel") or d:IsA("TextButton") then
+            local n = tryNum(d.Text)
+            if n >= MIN_VALUE then return n end
+            if n > v then v = n end
+        end
+    end
+    -- fallback: name / attribute
+    local attr = obj:GetAttribute("Income") or obj:GetAttribute("Value") or obj:GetAttribute("Generation")
+    if attr then
+        local n = tryNum(attr)
+        if n > v then v = n end
+    end
+    return v
+end
+
+local function scanCurrentServer()
+    local maxV = 0
+    local found = {}
+    local roots = {}
+    for _, name in ipairs({"Plots", "Bases", "PlotsFolder", "PlayerPlots"}) do
+        local f = workspace:FindFirstChild(name)
+        if f then table.insert(roots, f) end
+    end
+    if #roots == 0 then
+        for _, c in ipairs(workspace:GetChildren()) do
+            if c:IsA("Folder") or c:IsA("Model") then
+                if c:FindFirstChild("AnimalPodiums") or c.Name:lower():find("plot") or c.Name:lower():find("base") then
+                    table.insert(roots, c)
+                end
+            end
+        end
+    end
+
+    for _, root in ipairs(roots) do
+        for _, plot in ipairs(root:GetChildren()) do
+            local pods = plot:FindFirstChild("AnimalPodiums") or plot:FindFirstChild("Podiums") or plot
+            for _, pod in ipairs(pods:GetChildren()) do
+                local val = extractValue(pod)
+                if val >= MIN_VALUE then
+                    maxV = math.max(maxV, val)
+                    table.insert(found, {obj = pod, value = val, plot = plot.Name})
+                end
+            end
+            -- también modelos sueltos con Value
+            for _, d in ipairs(plot:GetDescendants()) do
+                if d:IsA("Model") and (d:FindFirstChild("Value") or d:FindFirstChild("Income") or d:FindFirstChild("Generation")) then
+                    local val = extractValue(d)
+                    if val >= MIN_VALUE then
+                        maxV = math.max(maxV, val)
+                        table.insert(found, {obj = d, value = val, plot = plot.Name})
+                    end
+                end
+            end
+        end
+    end
+    return maxV, found
+end
+
+local function fetchPublicServers()
+    local list = {}
+    local cursor = ""
+    local pages = 0
+    while pages < 5 do
+        local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100"):format(PLACE_ID)
+        if cursor ~= "" then url = url .. "&cursor=" .. cursor end
+        local ok, body = pcall(function()
+            return game:HttpGet(url)
+        end)
+        if not ok or not body then break end
+        local data = HS:JSONDecode(body)
+        if not data or not data.data then break end
+        for _, s in ipairs(data.data) do
+            if s.id ~= game.JobId and s.playing < (s.maxPlayers or 8) then
+                table.insert(list, {
+                    id = s.id,
+                    players = s.playing or 0,
+                    maxPlayers = s.maxPlayers or 8,
+                    ping = s.ping or 0
+                })
+            end
+        end
+        cursor = data.nextPageCursor
+        if not cursor or cursor == "" then break end
+        pages += 1
+        task.wait(0.15)
+    end
+    return list
+end
+
+-- GUI
+local sg = Instance.new("ScreenGui")
+sg.Name = "SAB_100M_Finder"
+sg.ResetOnSpawn = false
+sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+sg.Parent = LP:WaitForChild("PlayerGui")
+
+local main = Instance.new("Frame")
+main.Name = "Main"
+main.Size = UDim2.new(0, 320, 0, 380)
+main.Position = UDim2.new(0.5, -160, 0.5, -190)
+main.BackgroundColor3 = Color3.fromRGB(18, 18, 24)
+main.BorderSizePixel = 0
+main.Visible = false
+main.Parent = sg
+Instance.new("UICorner", main).CornerRadius = UDim.new(0, 10)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -20, 0, 32)
+title.Position = UDim2.new(0, 10, 0, 8)
+title.BackgroundTransparency = 1
+title.Text = "SAB 100M+ Finder"
+title.TextColor3 = Color3.fromRGB(255, 220, 80)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 18
+title.TextXAlignment = Enum.TextXAlignment.Left
+title.Parent = main
+
+local status = Instance.new("TextLabel")
+status.Name = "Status"
+status.Size = UDim2.new(1, -20, 0, 20)
+status.Position = UDim2.new(0, 10, 0, 40)
+status.BackgroundTransparency = 1
+status.Text = "Y = toggle | listo"
+status.TextColor3 = Color3.fromRGB(180, 180, 190)
+status.Font = Enum.Font.Gotham
+status.TextSize = 13
+status.TextXAlignment = Enum.TextXAlignment.Left
+status.Parent = main
+
+-- Speed
+local speedLbl = Instance.new("TextLabel")
+speedLbl.Size = UDim2.new(1, -20, 0, 18)
+speedLbl.Position = UDim2.new(0, 10, 0, 70)
+speedLbl.BackgroundTransparency = 1
+speedLbl.Text = "Velocidad: 50"
+speedLbl.TextColor3 = Color3.fromRGB(220, 220, 230)
+speedLbl.Font = Enum.Font.Gotham
+speedLbl.TextSize = 14
+speedLbl.TextXAlignment = Enum.TextXAlignment.Left
+speedLbl.Parent = main
+
+local speedSlider = Instance.new("TextButton")
+speedSlider.Name = "SpeedSlider"
+speedSlider.Size = UDim2.new(1, -20, 0, 22)
+speedSlider.Position = UDim2.new(0, 10, 0, 92)
+speedSlider.BackgroundColor3 = Color3.fromRGB(40, 40, 55)
+speedSlider.Text = ""
+speedSlider.AutoButtonColor = false
+speedSlider.Parent = main
+Instance.new("UICorner", speedSlider).CornerRadius = UDim.new(0, 6)
+
+local speedFill = Instance.new("Frame")
+speedFill.Size = UDim2.new(0.25, 0, 1, 0)
+speedFill.BackgroundColor3 = Color3.fromRGB(80, 160, 255)
+speedFill.BorderSizePixel = 0
+speedFill.Parent = speedSlider
+Instance.new("UICorner", speedFill).CornerRadius = UDim.new(0, 6)
+
+local dragging = false
+speedSlider.MouseButton1Down:Connect(function()
+    dragging = true
+end)
+UIS.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 or inp.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+UIS.InputChanged:Connect(function(inp)
+    if not dragging then return end
+    if inp.UserInputType == Enum.UserInputType.MouseMovement or inp.UserInputType == Enum.UserInputType.Touch then
+        local abs = speedSlider.AbsolutePosition.X
+        local size = speedSlider.AbsoluteSize.X
+        local rel = math.clamp((inp.Position.X - abs) / size, 0, 1)
+        speedFill.Size = UDim2.new(rel, 0, 1, 0)
+        local spd = math.floor(16 + rel * 184) -- 16..200
+        getgenv().SAB_Finder.Speed = spd
+        speedLbl.Text = "Velocidad: " .. spd
+        local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+        if hum then hum.WalkSpeed = spd end
+    end
+end)
+
+-- AutoJoin toggle
+local autoBtn = Instance.new("TextButton")
+autoBtn.Size = UDim2.new(1, -20, 0, 32)
+autoBtn.Position = UDim2.new(0, 10, 0, 128)
+autoBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 70)
+autoBtn.Text = "Finder AutoJoin: OFF"
+autoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+autoBtn.Font = Enum.Font.GothamBold
+autoBtn.TextSize = 14
+autoBtn.Parent = main
+Instance.new("UICorner", autoBtn).CornerRadius = UDim.new(0, 6)
+
+-- Dropdown list
+local dropLbl = Instance.new("TextLabel")
+dropLbl.Size = UDim2.new(1, -20, 0, 18)
+dropLbl.Position = UDim2.new(0, 10, 0, 170)
+dropLbl.BackgroundTransparency = 1
+dropLbl.Text = "Servers con 100M+ (clic para unir)"
+dropLbl.TextColor3 = Color3.fromRGB(200, 200, 210)
+dropLbl.Font = Enum.Font.Gotham
+dropLbl.TextSize = 13
+dropLbl.TextXAlignment = Enum.TextXAlignment.Left
+dropLbl.Parent = main
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -20, 0, 170)
+scroll.Position = UDim2.new(0, 10, 0, 192)
+scroll.BackgroundColor3 = Color3.fromRGB(28, 28, 38)
+scroll.BorderSizePixel = 0
+scroll.ScrollBarThickness = 4
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroll.Parent = main
+Instance.new("UICorner", scroll).CornerRadius = UDim.new(0, 6)
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 4)
+listLayout.Parent = scroll
+
+local function clearList()
+    for _, c in ipairs(scroll:GetChildren()) do
+        if c:IsA("TextButton") then c:Destroy() end
+    end
+end
+
+local function refreshListUI()
+    clearList()
+    local y = 0
+    for i, s in ipairs(getgenv().SAB_Finder.FoundServers) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -8, 0, 36)
+        btn.BackgroundColor3 = Color3.fromRGB(45, 55, 80)
+        btn.Text = string.format("%s  |  %s/s  |  %d/%d", s.id:sub(1, 8), formatVal(s.maxVal), s.players, s.maxPlayers or 8)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 12
+        btn.TextXAlignment = Enum.TextXAlignment.Left
+        btn.Parent = scroll
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+        btn.MouseButton1Click:Connect(function()
+            status.Text = "uniendo a " .. s.id:sub(1, 12) .. "..."
+            pcall(function()
+                TS:TeleportToPlaceInstance(PLACE_ID, s.id, LP)
+            end)
+        end)
+        y = y + 40
+    end
+    scroll.CanvasSize = UDim2.new(0, 0, 0, math.max(y, 170))
+end
+
+local function addFoundServer(jobId, maxVal, players, maxPlayers)
+    for _, s in ipairs(getgenv().SAB_Finder.FoundServers) do
+        if s.id == jobId then
+            s.maxVal = math.max(s.maxVal, maxVal)
+            return
+        end
+    end
+    table.insert(getgenv().SAB_Finder.FoundServers, {
+        id = jobId,
+        maxVal = maxVal,
+        players = players or 0,
+        maxPlayers = maxPlayers or 8
+    })
+    table.sort(getgenv().SAB_Finder.FoundServers, function(a, b) return a.maxVal > b.maxVal end)
+    refreshListUI()
+end
+
+-- AutoJoin loop: scan current → if 100M+ keep & list; else hop
+local hopIndex = 1
+local serverCache = {}
+
+autoBtn.MouseButton1Click:Connect(function()
+    getgenv().SAB_Finder.AutoJoin = not getgenv().SAB_Finder.AutoJoin
+    autoBtn.Text = "Finder AutoJoin: " .. (getgenv().SAB_Finder.AutoJoin and "ON" or "OFF")
+    autoBtn.BackgroundColor3 = getgenv().SAB_Finder.AutoJoin and Color3.fromRGB(40, 120, 60) or Color3.fromRGB(50, 50, 70)
+    if getgenv().SAB_Finder.AutoJoin then
+        status.Text = "escaneando + hopping..."
+        task.spawn(function()
+            while getgenv().SAB_Finder.AutoJoin do
+                local maxV, hits = scanCurrentServer()
+                if maxV >= MIN_VALUE then
+                    status.Text = "HIT " .. formatVal(maxV) .. "/s en este server"
+                    addFoundServer(game.JobId, maxV, #Players:GetPlayers(), 8)
+                    -- se queda; no hop
+                    task.wait(3)
+                else
+                    status.Text = "sin 100M+ aquí → hop"
+                    if #serverCache == 0 or hopIndex > #serverCache then
+                        serverCache = fetchPublicServers()
+                        hopIndex = 1
+                        if #serverCache == 0 then
+                            status.Text = "sin servers públicos, reintento..."
+                            task.wait(4)
+                        end
+                    end
+                    if serverCache[hopIndex] then
+                        local target = serverCache[hopIndex]
+                        hopIndex += 1
+                        pcall(function()
+                            TS:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
+                        end)
+                        task.wait(6) -- wait teleport / load
+                    else
+                        task.wait(2)
+                    end
+                end
+                task.wait(0.5)
+            end
+            status.Text = "AutoJoin off"
+        end)
+    end
+end)
+
+-- apply speed continuously
+RS.Heartbeat:Connect(function()
+    local hum = LP.Character and LP.Character:FindFirstChildOfClass("Humanoid")
+    if hum and getgenv().SAB_Finder.Speed then
+        if math.abs(hum.WalkSpeed - getgenv().SAB_Finder.Speed) > 1 then
+            hum.WalkSpeed = getgenv().SAB_Finder.Speed
+        end
+    end
+end)
+
+-- Y toggle
+UIS.InputBegan:Connect(function(inp, gp)
+    if gp then return end
+    if inp.KeyCode == Enum.KeyCode.Y then
+        getgenv().SAB_Finder.GuiVisible = not getgenv().SAB_Finder.GuiVisible
+        main.Visible = getgenv().SAB_Finder.GuiVisible
+    end
+end)
+
+-- scan on load once
+task.spawn(function()
+    task.wait(2)
+    local maxV = select(1, scanCurrentServer())
+    if maxV >= MIN_VALUE then
+        addFoundServer(game.JobId, maxV, #Players:GetPlayers(), 8)
+        status.Text = "este server tiene " .. formatVal(maxV) .. "/s"
+    else
+        status.Text = "Y = abrir | listo para hop"
+    end
+end)
+
+print("[SAB 100M Finder] loaded — Y para GUI")
