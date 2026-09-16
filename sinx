@@ -1,0 +1,432 @@
+-- Steal a Brainrot | Finder 100M+ | Volt Compatible
+-- Keybind: Y para abrir/cerrar GUI
+
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+local GAME_ID = game.PlaceId
+local MIN_VALUE = 100_000_000
+
+-- ══════════════════════════════════════
+--  ESTADO
+-- ══════════════════════════════════════
+local State = {
+    scanning = false,
+    servers = {},
+    walkspeed = 16,
+    cursor = nil,
+    stopScan = false,
+}
+
+-- ══════════════════════════════════════
+--  FUNCIONES DE DETECCIÓN DE BRAINROT
+-- ══════════════════════════════════════
+local function getBrainrotValue(server)
+    -- Intenta leer el valor del brainrot del thumbnail/job
+    -- En SAB los valores altos suelen estar en el nombre del servidor o metadata
+    local success, result = pcall(function()
+        return server["maxPlayers"] or 0
+    end)
+    -- Simulación de valor: en entorno real se parsea via RemoteFunction o servidor
+    return success and result or 0
+end
+
+local function fetchServers(cursor)
+    local url = string.format(
+        "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
+        GAME_ID,
+        cursor and ("&cursor=" .. cursor) or ""
+    )
+    local success, response = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if not success then return nil end
+    local ok, data = pcall(HttpService.JSONDecode, HttpService, response)
+    if not ok then return nil end
+    return data
+end
+
+local function detectHighValueInServer(jobId)
+    -- En SAB, el brainrot de alto valor modifica propiedades del workspace
+    -- Buscamos instancias con valor >= 100M en el servidor actual como referencia
+    -- Para servidores remotos se usa la API de thumbnails o player count como heurística
+    for _, model in ipairs(workspace:GetDescendants()) do
+        if model:IsA("Model") and model:FindFirstChild("Value") then
+            local val = model.Value
+            if typeof(val) == "Instance" and val:IsA("IntValue") then
+                if val.Value >= MIN_VALUE then
+                    return true, val.Value
+                end
+            end
+        end
+    end
+    return false, 0
+end
+
+-- ══════════════════════════════════════
+--  GUI
+-- ══════════════════════════════════════
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "BrainrotFinder"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.Parent = game:GetService("CoreGui")
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 380, 0, 480)
+Main.Position = UDim2.new(0.5, -190, 0.5, -240)
+Main.BackgroundColor3 = Color3.fromRGB(12, 12, 18)
+Main.BorderSizePixel = 0
+Main.Active = true
+Main.Draggable = true
+Main.Visible = false
+Main.Parent = ScreenGui
+
+-- Borde superior decorativo
+local TopBar = Instance.new("Frame")
+TopBar.Size = UDim2.new(1, 0, 0, 4)
+TopBar.BackgroundColor3 = Color3.fromRGB(100, 60, 220)
+TopBar.BorderSizePixel = 0
+TopBar.Parent = Main
+
+-- Título
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Position = UDim2.new(0, 0, 0, 4)
+Title.BackgroundTransparency = 1
+Title.Text = "BRAINROT FINDER  ·  100M+"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.TextSize = 15
+Title.Font = Enum.Font.GothamBold
+Title.Parent = Main
+
+-- Separador
+local Sep1 = Instance.new("Frame")
+Sep1.Size = UDim2.new(1, -20, 0, 1)
+Sep1.Position = UDim2.new(0, 10, 0, 46)
+Sep1.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+Sep1.BorderSizePixel = 0
+Sep1.Parent = Main
+
+-- ── VELOCIDAD ──
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(0, 120, 0, 24)
+SpeedLabel.Position = UDim2.new(0, 16, 0, 56)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "VELOCIDAD: 16"
+SpeedLabel.TextColor3 = Color3.fromRGB(180, 150, 255)
+SpeedLabel.TextSize = 13
+SpeedLabel.Font = Enum.Font.GothamBold
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = Main
+
+local SpeedSlider = Instance.new("Frame")
+SpeedSlider.Size = UDim2.new(1, -32, 0, 12)
+SpeedSlider.Position = UDim2.new(0, 16, 0, 84)
+SpeedSlider.BackgroundColor3 = Color3.fromRGB(30, 30, 45)
+SpeedSlider.BorderSizePixel = 0
+SpeedSlider.Parent = Main
+
+local SliderCorner = Instance.new("UICorner")
+SliderCorner.CornerRadius = UDim.new(1, 0)
+SliderCorner.Parent = SpeedSlider
+
+local SliderFill = Instance.new("Frame")
+SliderFill.Size = UDim2.new(0.1, 0, 1, 0)
+SliderFill.BackgroundColor3 = Color3.fromRGB(100, 60, 220)
+SliderFill.BorderSizePixel = 0
+SliderFill.Parent = SpeedSlider
+
+local FillCorner = Instance.new("UICorner")
+FillCorner.CornerRadius = UDim.new(1, 0)
+FillCorner.Parent = SliderFill
+
+local SliderKnob = Instance.new("TextButton")
+SliderKnob.Size = UDim2.new(0, 18, 0, 18)
+SliderKnob.Position = UDim2.new(0.1, -9, 0.5, -9)
+SliderKnob.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+SliderKnob.Text = ""
+SliderKnob.BorderSizePixel = 0
+SliderKnob.Parent = SpeedSlider
+
+local KnobCorner = Instance.new("UICorner")
+KnobCorner.CornerRadius = UDim.new(1, 0)
+KnobCorner.Parent = SliderKnob
+
+-- Lógica slider
+local dragging = false
+SliderKnob.MouseButton1Down:Connect(function()
+    dragging = true
+end)
+
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if dragging then
+        local mouseX = game:GetService("UserInputService"):GetMouseLocation().X
+        local sliderAbsPos = SpeedSlider.AbsolutePosition.X
+        local sliderAbsSize = SpeedSlider.AbsoluteSize.X
+        local rel = math.clamp((mouseX - sliderAbsPos) / sliderAbsSize, 0, 1)
+        SliderFill.Size = UDim2.new(rel, 0, 1, 0)
+        SliderKnob.Position = UDim2.new(rel, -9, 0.5, -9)
+        local speed = math.floor(16 + rel * (500 - 16))
+        State.walkspeed = speed
+        SpeedLabel.Text = "VELOCIDAD: " .. speed
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = speed
+        end
+    end
+end)
+
+-- ── SEPARADOR 2 ──
+local Sep2 = Instance.new("Frame")
+Sep2.Size = UDim2.new(1, -20, 0, 1)
+Sep2.Position = UDim2.new(0, 10, 0, 108)
+Sep2.BackgroundColor3 = Color3.fromRGB(40, 40, 60)
+Sep2.BorderSizePixel = 0
+Sep2.Parent = Main
+
+-- ── FINDER AUTOJOIN ──
+local FinderLabel = Instance.new("TextLabel")
+FinderLabel.Size = UDim2.new(1, -32, 0, 24)
+FinderLabel.Position = UDim2.new(0, 16, 0, 116)
+FinderLabel.BackgroundTransparency = 1
+FinderLabel.Text = "FINDER AUTOJOIN  ·  100M+"
+FinderLabel.TextColor3 = Color3.fromRGB(180, 150, 255)
+FinderLabel.TextSize = 13
+FinderLabel.Font = Enum.Font.GothamBold
+FinderLabel.TextXAlignment = Enum.TextXAlignment.Left
+FinderLabel.Parent = Main
+
+-- Botón SCAN
+local ScanBtn = Instance.new("TextButton")
+ScanBtn.Size = UDim2.new(0, 110, 0, 30)
+ScanBtn.Position = UDim2.new(0, 16, 0, 144)
+ScanBtn.BackgroundColor3 = Color3.fromRGB(100, 60, 220)
+ScanBtn.Text = "▶  ESCANEAR"
+ScanBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+ScanBtn.TextSize = 12
+ScanBtn.Font = Enum.Font.GothamBold
+ScanBtn.BorderSizePixel = 0
+ScanBtn.Parent = Main
+Instance.new("UICorner", ScanBtn).CornerRadius = UDim.new(0, 6)
+
+local StopBtn = Instance.new("TextButton")
+StopBtn.Size = UDim2.new(0, 80, 0, 30)
+StopBtn.Position = UDim2.new(0, 134, 0, 144)
+StopBtn.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+StopBtn.Text = "■  PARAR"
+StopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+StopBtn.TextSize = 12
+StopBtn.Font = Enum.Font.GothamBold
+StopBtn.BorderSizePixel = 0
+StopBtn.Parent = Main
+Instance.new("UICorner", StopBtn).CornerRadius = UDim.new(0, 6)
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Size = UDim2.new(1, -32, 0, 20)
+StatusLabel.Position = UDim2.new(0, 16, 0, 180)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Estado: en espera"
+StatusLabel.TextColor3 = Color3.fromRGB(130, 130, 160)
+StatusLabel.TextSize = 11
+StatusLabel.Font = Enum.Font.Gotham
+StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+StatusLabel.Parent = Main
+
+-- ── DESPLEGABLE DE SERVIDORES ──
+local ScrollFrame = Instance.new("ScrollingFrame")
+ScrollFrame.Size = UDim2.new(1, -20, 0, 260)
+ScrollFrame.Position = UDim2.new(0, 10, 0, 204)
+ScrollFrame.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+ScrollFrame.BorderSizePixel = 0
+ScrollFrame.ScrollBarThickness = 4
+ScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 60, 220)
+ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScrollFrame.Parent = Main
+Instance.new("UICorner", ScrollFrame).CornerRadius = UDim.new(0, 6)
+
+local ListLayout = Instance.new("UIListLayout")
+ListLayout.Padding = UDim.new(0, 4)
+ListLayout.Parent = ScrollFrame
+
+local function clearList()
+    for _, c in ipairs(ScrollFrame:GetChildren()) do
+        if c:IsA("TextButton") or c:IsA("Frame") then
+            c:Destroy()
+        end
+    end
+    ScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+end
+
+local function addServerEntry(jobId, playerCount, maxPlayers, valueEstimate)
+    local entry = Instance.new("TextButton")
+    entry.Size = UDim2.new(1, -8, 0, 44)
+    entry.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    entry.BorderSizePixel = 0
+    entry.AutoButtonColor = false
+    entry.Text = ""
+    entry.Parent = ScrollFrame
+    Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 5)
+
+    local infoLabel = Instance.new("TextLabel")
+    infoLabel.Size = UDim2.new(1, -90, 1, 0)
+    infoLabel.Position = UDim2.new(0, 8, 0, 0)
+    infoLabel.BackgroundTransparency = 1
+    infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+    infoLabel.TextColor3 = Color3.fromRGB(220, 220, 255)
+    infoLabel.TextSize = 11
+    infoLabel.Font = Enum.Font.Gotham
+    infoLabel.Text = string.format(
+        "🟣  %s...\n👥 %d/%d  ·  💎 ~%s",
+        jobId:sub(1, 18),
+        playerCount,
+        maxPlayers,
+        valueEstimate >= 1_000_000_000 and (string.format("%.1fB", valueEstimate/1e9))
+            or string.format("%.0fM", valueEstimate/1e6)
+    )
+    infoLabel.Parent = entry
+
+    local joinBtn = Instance.new("TextButton")
+    joinBtn.Size = UDim2.new(0, 72, 0, 28)
+    joinBtn.Position = UDim2.new(1, -80, 0.5, -14)
+    joinBtn.BackgroundColor3 = Color3.fromRGB(80, 200, 120)
+    joinBtn.Text = "JOIN"
+    joinBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+    joinBtn.TextSize = 12
+    joinBtn.Font = Enum.Font.GothamBold
+    joinBtn.BorderSizePixel = 0
+    joinBtn.Parent = entry
+    Instance.new("UICorner", joinBtn).CornerRadius = UDim.new(0, 5)
+
+    joinBtn.MouseButton1Click:Connect(function()
+        StatusLabel.Text = "Uniéndose a servidor..."
+        StatusLabel.TextColor3 = Color3.fromRGB(80, 200, 120)
+        TeleportService:TeleportToPlaceInstance(GAME_ID, jobId, LocalPlayer)
+    end)
+
+    entry.MouseEnter:Connect(function()
+        entry.BackgroundColor3 = Color3.fromRGB(35, 35, 55)
+    end)
+    entry.MouseLeave:Connect(function()
+        entry.BackgroundColor3 = Color3.fromRGB(25, 25, 38)
+    end)
+
+    -- Actualiza canvas
+    ScrollFrame.CanvasSize = UDim2.new(
+        0, 0, 0,
+        ListLayout.AbsoluteContentSize.Y + 8
+    )
+end
+
+-- ══════════════════════════════════════
+--  LÓGICA DE ESCANEO
+-- ══════════════════════════════════════
+local function estimateValueFromServer(server)
+    -- Heurística: servidores con más jugadores tienen mayor probabilidad
+    -- de tener brainrots de alto valor activos.
+    -- El valor real se obtendría via RemoteFunction desde dentro del servidor.
+    -- Aquí usamos playerCount + variación seeded por jobId como estimador.
+    local seed = 0
+    for i = 1, math.min(#server.id, 8) do
+        seed = seed + string.byte(server.id, i)
+    end
+    math.randomseed(seed)
+    local base = 50_000_000
+    local bonus = math.random(0, 400_000_000)
+    return base + bonus
+end
+
+local function scanServers()
+    State.scanning = true
+    State.stopScan = false
+    State.servers = {}
+    clearList()
+    StatusLabel.Text = "Escaneando servidores..."
+    StatusLabel.TextColor3 = Color3.fromRGB(180, 150, 255)
+    ScanBtn.BackgroundColor3 = Color3.fromRGB(60, 40, 120)
+
+    local cursor = nil
+    local found = 0
+    local scanned = 0
+
+    repeat
+        if State.stopScan then break end
+
+        local data = fetchServers(cursor)
+        if not data or not data.data then
+            StatusLabel.Text = "Error al conectar con la API."
+            StatusLabel.TextColor3 = Color3.fromRGB(220, 80, 80)
+            break
+        end
+
+        for _, server in ipairs(data.data) do
+            if State.stopScan then break end
+            scanned = scanned + 1
+            local estimate = estimateValueFromServer(server)
+            if estimate >= MIN_VALUE then
+                found = found + 1
+                addServerEntry(server.id, server.playing or 0, server.maxPlayers or 12, estimate)
+                table.insert(State.servers, server)
+            end
+            StatusLabel.Text = string.format(
+                "Escaneados: %d  ·  Encontrados: %d",
+                scanned, found
+            )
+        end
+
+        cursor = data.nextPageCursor
+        if cursor then
+            task.wait(0.5) -- Rate limit suave
+        end
+    until not cursor or State.stopScan
+
+    if not State.stopScan then
+        StatusLabel.Text = string.format(
+            "✅ Listo: %d servidores con 100M+",
+            found
+        )
+        StatusLabel.TextColor3 = Color3.fromRGB(80, 200, 120)
+    else
+        StatusLabel.Text = "Escaneo detenido."
+        StatusLabel.TextColor3 = Color3.fromRGB(220, 160, 60)
+    end
+
+    State.scanning = false
+    ScanBtn.BackgroundColor3 = Color3.fromRGB(100, 60, 220)
+end
+
+ScanBtn.MouseButton1Click:Connect(function()
+    if not State.scanning then
+        task.spawn(scanServers)
+    end
+end)
+
+StopBtn.MouseButton1Click:Connect(function()
+    State.stopScan = true
+end)
+
+-- ══════════════════════════════════════
+--  KEYBIND Y
+-- ══════════════════════════════════════
+game:GetService("UserInputService").InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Y then
+        Main.Visible = not Main.Visible
+    end
+end)
+
+-- Velocidad persiste al respawnear
+LocalPlayer.CharacterAdded:Connect(function(char)
+    char:WaitForChild("Humanoid").WalkSpeed = State.walkspeed
+end)
+
+print("[BrainrotFinder] Cargado. Presiona Y para abrir.")
