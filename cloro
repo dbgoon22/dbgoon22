@@ -1,0 +1,487 @@
+-- language: Lua | file: StealABrainrot_FullPack.lua | target: Steal a Brainrot (Roblox) | executor any
+-- Full Pack: Scanner + ESP + AutoCollect + Path + ServerFinder (>50M/s) + GUI (Y)
+-- Offsets / Value names cambian con updates. Re-deriva los nombres de Value/Attribute si el scanner no pilla nada.
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- ===================== CONFIG =====================
+local CONFIG = {
+    MIN_INCOME = 50_000_000,          -- 50 millones / segundo (filtro autofinder)
+    ESP_COLOR_HIGH = Color3.fromRGB(0, 255, 120),
+    ESP_COLOR_MID  = Color3.fromRGB(255, 200, 0),
+    ESP_COLOR_LOW  = Color3.fromRGB(180, 180, 180),
+    SCAN_INTERVAL  = 1.2,             -- segundos entre scans de mapa
+    HOP_COOLDOWN   = 4,               -- segundos mínimos entre hops
+    AUTOCOLLECT_RANGE = 18,           -- distancia para intentar collect
+    PATH_SPEED     = 28,              -- walkspeed temporal para path
+}
+
+-- ===================== STATE =====================
+local State = {
+    guiVisible = true,
+    espEnabled = true,
+    autoCollect = false,
+    autoFinder = false,
+    scannerEnabled = true,
+    lastHop = 0,
+    foundHigh = {},          -- {model = true, income = n, name = s}
+    espObjects = {},         -- [model] = {billboard, highlight}
+    connections = {},
+}
+
+-- ===================== UTILS =====================
+local function safeNumber(v)
+    if typeof(v) == "number" then return v end
+    if typeof(v) == "string" then
+        local n = tonumber((v:gsub("[,$]", ""):gsub("M", "e6"):gsub("B", "e9"):gsub("K", "e3")))
+        return n or 0
+    end
+    return 0
+end
+
+local function getIncome(obj)
+    -- intenta varias convenciones comunes del juego
+    local candidates = {
+        "Income", "IncomePerSecond", "MoneyPerSecond", "Generation", "CashPerSecond",
+        "MPS", "PerSecond", "Value", "Earn", "Rate"
+    }
+    for _, name in ipairs(candidates) do
+        local v = obj:FindFirstChild(name, true)
+        if v and (v:IsA("NumberValue") or v:IsA("IntValue") or v:IsA("StringValue")) then
+            return safeNumber(v.Value)
+        end
+        local attr = obj:GetAttribute(name)
+        if attr then return safeNumber(attr) end
+    end
+    -- a veces el valor está en un StringValue de display
+    for _, d in ipairs(obj:GetDescendants()) do
+        if d:IsA("StringValue") or d:IsA("TextLabel") then
+            local text = (d.Value or d.Text or ""):lower()
+            if text:find("/s") or text:find("per second") or text:find("m/s") then
+                local num = text:match("([%d%.%,]+)%s*[mbk]?")
+                if num then return safeNumber(num) end
+            end
+        end
+    end
+    return 0
+end
+
+local function getBrainrotName(obj)
+    local n = obj:FindFirstChild("Name", true) or obj:FindFirstChild("BrainrotName", true)
+    if n and (n:IsA("StringValue") or n:IsA("TextLabel")) then
+        return n.Value or n.Text
+    end
+    return obj.Name
+end
+
+local function isBrainrotModel(obj)
+    if not obj:IsA("Model") and not obj:IsA("Folder") then return false end
+    local income = getIncome(obj)
+    if income > 0 then return true, income end
+    -- fallback: nombre o hijos típicos
+    local lower = obj.Name:lower()
+    if lower:find("brainrot") or lower:find("pet") or lower:find("unit") then
+        return true, 0
+    end
+    return false, 0
+end
+
+-- ===================== ESP =====================
+local function clearESP(model)
+    local data = State.espObjects[model]
+    if data then
+        if data.billboard then data.billboard:Destroy() end
+        if data.highlight then data.highlight:Destroy() end
+        State.espObjects[model] = nil
+    end
+end
+
+local function createESP(model, income, name)
+    if State.espObjects[model] then return end
+    local root = model:FindFirstChild("HumanoidRootPart")
+        or model.PrimaryPart
+        or model:FindFirstChildWhichIsA("BasePart", true)
+    if not root then return end
+
+    local color = income >= CONFIG.MIN_INCOME and CONFIG.ESP_COLOR_HIGH
+        or income >= 1_000_000 and CONFIG.ESP_COLOR_MID
+        or CONFIG.ESP_COLOR_LOW
+
+    local hl = Instance.new("Highlight")
+    hl.Adornee = model
+    hl.FillColor = color
+    hl.OutlineColor = color
+    hl.FillTransparency = 0.65
+    hl.OutlineTransparency = 0
+    hl.Parent = model
+
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee = root
+    bb.Size = UDim2.new(0, 160, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+    bb.AlwaysOnTop = true
+    bb.Parent = model
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 0.35
+    label.BackgroundColor3 = Color3.new(0, 0, 0)
+    label.TextColor3 = color
+    label.Font = Enum.Font.GothamBold
+    label.TextSize = 13
+    label.Text = string.format("%s\n%.1fM/s", name or model.Name, income / 1e6)
+    label.Parent = bb
+
+    State.espObjects[model] = { billboard = bb, highlight = hl }
+end
+
+local function updateESP()
+    if not State.espEnabled then
+        for m in pairs(State.espObjects) do clearESP(m) end
+        return
+    end
+    for model, data in pairs(State.foundHigh) do
+        if model.Parent then
+            createESP(model, data.income, data.name)
+        else
+            clearESP(model)
+            State.foundHigh[model] = nil
+        end
+    end
+end
+
+-- ===================== SCANNER =====================
+local function scanWorkspace()
+    local found = {}
+    local highCount = 0
+
+    local function scan(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            local ok, income = isBrainrotModel(child)
+            if ok and income > 0 then
+                found[child] = {
+                    income = income,
+                    name = getBrainrotName(child)
+                }
+                if income >= CONFIG.MIN_INCOME then
+                    highCount = highCount + 1
+                end
+            end
+            -- no bajar demasiado profundo para no laggear
+            if #child:GetChildren() < 40 then
+                scan(child)
+            end
+        end
+    end
+
+    pcall(scan, Workspace)
+    State.foundHigh = found
+    return highCount
+end
+
+-- ===================== AUTO COLLECT / PATH =====================
+local function getNearestHigh()
+    local char = LocalPlayer.Character
+    if not char then return nil end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local best, bestDist, bestIncome = nil, math.huge, 0
+    for model, data in pairs(State.foundHigh) do
+        if data.income >= CONFIG.MIN_INCOME and model.Parent then
+            local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+            if root then
+                local d = (root.Position - hrp.Position).Magnitude
+                if d < bestDist then
+                    best, bestDist, bestIncome = model, d, data.income
+                end
+            end
+        end
+    end
+    return best, bestDist, bestIncome
+end
+
+local function tryCollect(model)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
+
+    local root = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true)
+    if not root then return end
+
+    -- path simple: teleport corto + walk (reduce detection vs pure teleport spam)
+    local dist = (root.Position - hrp.Position).Magnitude
+    if dist > 80 then
+        hrp.CFrame = CFrame.new(root.Position + Vector3.new(0, 4, 6))
+        task.wait(0.15)
+    end
+
+    hum.WalkSpeed = CONFIG.PATH_SPEED
+    hum:MoveTo(root.Position)
+    task.wait(0.4)
+
+    -- fire proximity prompt si existe
+    for _, p in ipairs(model:GetDescendants()) do
+        if p:IsA("ProximityPrompt") then
+            p.HoldDuration = 0
+            fireproximityprompt(p)
+        end
+    end
+    -- click detector fallback
+    for _, cd in ipairs(model:GetDescendants()) do
+        if cd:IsA("ClickDetector") then
+            fireclickdetector(cd)
+        end
+    end
+end
+
+local function autoCollectLoop()
+    while State.autoCollect do
+        local model, dist = getNearestHigh()
+        if model and dist and dist < 120 then
+            pcall(tryCollect, model)
+        end
+        task.wait(0.9)
+    end
+end
+
+-- ===================== SERVER FINDER (>50M/s) =====================
+local function getPublicServers(placeId)
+    local servers = {}
+    local cursor = ""
+    local ok, res = pcall(function()
+        local url = string.format(
+            "https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100%s",
+            placeId,
+            cursor ~= "" and ("&cursor=" .. cursor) or ""
+        )
+        return HttpService:JSONDecode(game:HttpGet(url))
+    end)
+    if ok and res and res.data then
+        for _, s in ipairs(res.data) do
+            if s.playing < s.maxPlayers then
+                table.insert(servers, s)
+            end
+        end
+    end
+    return servers
+end
+
+local function hopToServer(jobId)
+    local now = tick()
+    if now - State.lastHop < CONFIG.HOP_COOLDOWN then return end
+    State.lastHop = now
+    pcall(function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, jobId, LocalPlayer)
+    end)
+end
+
+local function autoFinderLoop()
+    while State.autoFinder do
+        local high = scanWorkspace()
+        if high > 0 then
+            -- hay al menos un brainrot >= 50M/s en este server → paramos
+            if State.gui and State.gui.StatusLabel then
+                State.gui.StatusLabel.Text = string.format("FOUND %d brainrot(s) ≥50M/s — stopped hopping", high)
+            end
+            State.autoFinder = false
+            break
+        end
+
+        -- no hay → hop
+        local servers = getPublicServers(game.PlaceId)
+        if #servers > 0 then
+            local pick = servers[math.random(1, #servers)]
+            if State.gui and State.gui.StatusLabel then
+                State.gui.StatusLabel.Text = "No ≥50M/s here — hopping..."
+            end
+            hopToServer(pick.id)
+        else
+            if State.gui and State.gui.StatusLabel then
+                State.gui.StatusLabel.Text = "No public servers returned — retry..."
+            end
+        end
+        task.wait(CONFIG.HOP_COOLDOWN + 1)
+    end
+end
+
+-- ===================== GUI =====================
+local function createGUI()
+    local old = CoreGui:FindFirstChild("SABB_FullPack")
+    if old then old:Destroy() end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "SABB_FullPack"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.Parent = CoreGui
+
+    local main = Instance.new("Frame")
+    main.Name = "Main"
+    main.Size = UDim2.new(0, 280, 0, 320)
+    main.Position = UDim2.new(0, 20, 0.3, 0)
+    main.BackgroundColor3 = Color3.fromRGB(18, 18, 22)
+    main.BorderSizePixel = 0
+    main.Active = true
+    main.Draggable = true
+    main.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = main
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -10, 0, 32)
+    title.Position = UDim2.new(0, 5, 0, 4)
+    title.BackgroundTransparency = 1
+    title.Text = "SABB Full Pack  |  Y"
+    title.TextColor3 = Color3.fromRGB(0, 255, 140)
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = main
+
+    local status = Instance.new("TextLabel")
+    status.Name = "StatusLabel"
+    status.Size = UDim2.new(1, -16, 0, 36)
+    status.Position = UDim2.new(0, 8, 0, 36)
+    status.BackgroundColor3 = Color3.fromRGB(28, 28, 34)
+    status.TextColor3 = Color3.fromRGB(200, 200, 200)
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 12
+    status.Text = "Ready. Filter: ≥50M/s"
+    status.TextWrapped = true
+    status.Parent = main
+    Instance.new("UICorner", status).CornerRadius = UDim.new(0, 4)
+
+    local function makeToggle(text, y, default, callback)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -16, 0, 32)
+        btn.Position = UDim2.new(0, 8, 0, y)
+        btn.BackgroundColor3 = default and Color3.fromRGB(0, 120, 60) or Color3.fromRGB(50, 50, 55)
+        btn.Text = text .. (default and "  [ON]" or "  [OFF]")
+        btn.TextColor3 = Color3.new(1, 1, 1)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 13
+        btn.Parent = main
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+
+        local on = default
+        btn.MouseButton1Click:Connect(function()
+            on = not on
+            btn.BackgroundColor3 = on and Color3.fromRGB(0, 120, 60) or Color3.fromRGB(50, 50, 55)
+            btn.Text = text .. (on and "  [ON]" or "  [OFF]")
+            callback(on)
+        end)
+        return btn
+    end
+
+    makeToggle("ESP", 80, true, function(v)
+        State.espEnabled = v
+        if not v then
+            for m in pairs(State.espObjects) do clearESP(m) end
+        end
+    end)
+
+    makeToggle("Auto Collect (≥50M)", 118, false, function(v)
+        State.autoCollect = v
+        if v then
+            task.spawn(autoCollectLoop)
+        end
+    end)
+
+    makeToggle("Auto Finder (≥50M servers)", 156, false, function(v)
+        State.autoFinder = v
+        if v then
+            task.spawn(autoFinderLoop)
+        end
+    end)
+
+    makeToggle("Scanner Loop", 194, true, function(v)
+        State.scannerEnabled = v
+    end)
+
+    local hopBtn = Instance.new("TextButton")
+    hopBtn.Size = UDim2.new(1, -16, 0, 32)
+    hopBtn.Position = UDim2.new(0, 8, 0, 232)
+    hopBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 90)
+    hopBtn.Text = "Manual Server Hop"
+    hopBtn.TextColor3 = Color3.new(1, 1, 1)
+    hopBtn.Font = Enum.Font.Gotham
+    hopBtn.TextSize = 13
+    hopBtn.Parent = main
+    Instance.new("UICorner", hopBtn).CornerRadius = UDim.new(0, 4)
+    hopBtn.MouseButton1Click:Connect(function()
+        local servers = getPublicServers(game.PlaceId)
+        if #servers > 0 then
+            hopToServer(servers[math.random(1, #servers)].id)
+            status.Text = "Manual hop sent..."
+        else
+            status.Text = "No servers available"
+        end
+    end)
+
+    local info = Instance.new("TextLabel")
+    info.Size = UDim2.new(1, -10, 0, 40)
+    info.Position = UDim2.new(0, 5, 1, -44)
+    info.BackgroundTransparency = 1
+    info.Text = "Y = toggle GUI\nRe-derive Value names if scan empty"
+    info.TextColor3 = Color3.fromRGB(120, 120, 130)
+    info.Font = Enum.Font.Gotham
+    info.TextSize = 11
+    info.TextXAlignment = Enum.TextXAlignment.Left
+    info.Parent = main
+
+    State.gui = { root = gui, main = main, StatusLabel = status }
+    return gui
+end
+
+-- ===================== INPUT =====================
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.Y then
+        State.guiVisible = not State.guiVisible
+        if State.gui and State.gui.main then
+            State.gui.main.Visible = State.guiVisible
+        end
+    end
+end)
+
+-- ===================== MAIN LOOPS =====================
+createGUI()
+
+task.spawn(function()
+    while true do
+        if State.scannerEnabled then
+            local high = scanWorkspace()
+            updateESP()
+            if State.gui and State.gui.StatusLabel and not State.autoFinder then
+                local total = 0
+                for _ in pairs(State.foundHigh) do total = total + 1 end
+                State.gui.StatusLabel.Text = string.format("Scan: %d brainrots | ≥50M: %d", total, high)
+            end
+        end
+        task.wait(CONFIG.SCAN_INTERVAL)
+    end
+end)
+
+-- cleanup on leave
+Players.PlayerRemoving:Connect(function(p)
+    if p == LocalPlayer then
+        for m in pairs(State.espObjects) do clearESP(m) end
+    end
+end)
+
+print("[SABB Full Pack] loaded — Y to toggle GUI | AutoFinder filters ≥50M/s only")
