@@ -1,0 +1,484 @@
+-- language: Luau, file: dbgoon22.lua, target: Steal a Brainrot (Roblox)
+-- executor any (Synapse / Krnl / Fluxus / Delta / Arceus X etc)
+
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local VirtualInput = game:GetService("VirtualInputManager")
+
+local LP = Players.LocalPlayer
+local Char, Hum, HRP
+
+local function refreshChar()
+    Char = LP.Character or LP.CharacterAdded:Wait()
+    Hum = Char:WaitForChild("Humanoid")
+    HRP = Char:WaitForChild("HumanoidRootPart")
+end
+refreshChar()
+LP.CharacterAdded:Connect(function()
+    task.wait(0.4)
+    refreshChar()
+end)
+
+-- ===================== STATE =====================
+local State = {
+    SpeedEnabled = false,
+    SpeedValue = 28,
+    InfJump = false,
+    AutoBat = false,
+    AutoSteal = false,
+    StealRange = 18,
+    BatRange = 45,
+    GuiVisible = true,
+    Keybinds = {
+        AutoBat = Enum.KeyCode.T,
+        AutoSteal = Enum.KeyCode.U,   -- cambiado de Y → U
+        Speed = Enum.KeyCode.Z,
+        InfJump = Enum.KeyCode.X,
+        ToggleGui = Enum.KeyCode.Y,   -- Y abre / cierra la GUI
+    }
+}
+
+local listeningForBind = nil
+
+-- ===================== UTILS =====================
+local function getTool(nameContains)
+    local function scan(container)
+        for _, t in ipairs(container:GetChildren()) do
+            if t:IsA("Tool") and string.find(string.lower(t.Name), string.lower(nameContains)) then
+                return t
+            end
+        end
+    end
+    return scan(LP.Backpack) or scan(Char)
+end
+
+local function equipBat()
+    local bat = getTool("bat") or getTool("slap") or getTool("tung")
+    if bat and bat.Parent ~= Char then
+        Hum:EquipTool(bat)
+        return bat
+    end
+    return bat
+end
+
+local function nearestPlayer(maxDist)
+    local closest, dist = nil, maxDist or math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LP and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local d = (p.Character.HumanoidRootPart.Position - HRP.Position).Magnitude
+            if d < dist then
+                closest, dist = p, d
+            end
+        end
+    end
+    return closest, dist
+end
+
+local function firePrompt(prompt)
+    if fireproximityprompt then
+        fireproximityprompt(prompt)
+    else
+        prompt:InputHoldBegin()
+        task.wait(prompt.HoldDuration > 0 and prompt.HoldDuration + 0.05 or 0.05)
+        prompt:InputHoldEnd()
+    end
+end
+
+-- ===================== FEATURE LOOPS =====================
+task.spawn(function()
+    while true do
+        if State.SpeedEnabled and Hum and Hum.Parent then
+            Hum.WalkSpeed = State.SpeedValue
+        end
+        task.wait(0.15)
+    end
+end)
+
+UIS.JumpRequest:Connect(function()
+    if State.InfJump and Hum and Hum.Parent then
+        Hum:ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if State.AutoBat and HRP and Hum then
+            local target, dist = nearestPlayer(State.BatRange)
+            if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                local tHRP = target.Character.HumanoidRootPart
+                Hum:MoveTo(tHRP.Position)
+                if dist < 12 then
+                    local bat = equipBat()
+                    if bat then
+                        HRP.CFrame = CFrame.lookAt(HRP.Position, Vector3.new(tHRP.Position.X, HRP.Position.Y, tHRP.Position.Z))
+                        bat:Activate()
+                    end
+                end
+            end
+        end
+        task.wait(0.12)
+    end
+end)
+
+task.spawn(function()
+    while true do
+        if State.AutoSteal and HRP then
+            for _, prompt in ipairs(workspace:GetDescendants()) do
+                if prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                    local part = prompt.Parent
+                    if part and part:IsA("BasePart") then
+                        local d = (part.Position - HRP.Position).Magnitude
+                        if d <= State.StealRange then
+                            firePrompt(prompt)
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(0.25)
+    end
+end)
+
+-- ===================== KEYBINDS =====================
+UIS.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+
+    -- toggle GUI con Y (prioridad)
+    if input.KeyCode == State.Keybinds.ToggleGui then
+        State.GuiVisible = not State.GuiVisible
+        if Main then
+            Main.Visible = State.GuiVisible
+        end
+        return
+    end
+
+    if listeningForBind then
+        State.Keybinds[listeningForBind] = input.KeyCode
+        if updateKeybindLabels then updateKeybindLabels() end
+        listeningForBind = nil
+        return
+    end
+
+    if input.KeyCode == State.Keybinds.AutoBat then
+        State.AutoBat = not State.AutoBat
+        if updateToggles then updateToggles() end
+    elseif input.KeyCode == State.Keybinds.AutoSteal then
+        State.AutoSteal = not State.AutoSteal
+        if updateToggles then updateToggles() end
+    elseif input.KeyCode == State.Keybinds.Speed then
+        State.SpeedEnabled = not State.SpeedEnabled
+        if updateToggles then updateToggles() end
+    elseif input.KeyCode == State.Keybinds.InfJump then
+        State.InfJump = not State.InfJump
+        if updateToggles then updateToggles() end
+    end
+end)
+
+-- ===================== GUI =====================
+local function corner(inst, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 8)
+    c.Parent = inst
+    return c
+end
+
+local function stroke(inst, color, thick)
+    local s = Instance.new("UIStroke")
+    s.Color = color or Color3.fromRGB(0, 220, 255)
+    s.Thickness = thick or 1.4
+    s.Transparency = 0.25
+    s.Parent = inst
+    return s
+end
+
+local SG = Instance.new("ScreenGui")
+SG.Name = "dbgoon22"
+SG.ResetOnSpawn = false
+SG.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+SG.Parent = game:GetService("CoreGui")
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.fromOffset(340, 510)
+Main.Position = UDim2.fromScale(0.5, 0.5)
+Main.AnchorPoint = Vector2.new(0.5, 0.5)
+Main.BackgroundColor3 = Color3.fromRGB(12, 14, 22)
+Main.BorderSizePixel = 0
+Main.Visible = true
+Main.Parent = SG
+corner(Main, 14)
+stroke(Main, Color3.fromRGB(0, 200, 255), 1.6)
+
+local Accent = Instance.new("Frame")
+Accent.Size = UDim2.new(1, 0, 0, 3)
+Accent.BackgroundColor3 = Color3.fromRGB(0, 230, 255)
+Accent.BorderSizePixel = 0
+Accent.Parent = Main
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -50, 0, 42)
+Title.Position = UDim2.fromOffset(14, 10)
+Title.BackgroundTransparency = 1
+Title.Font = Enum.Font.GothamBlack
+Title.TextSize = 22
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.TextColor3 = Color3.fromRGB(240, 250, 255)
+Title.Text = "dbgoon22"
+Title.Parent = Main
+
+local Sub = Instance.new("TextLabel")
+Sub.Size = UDim2.new(1, -20, 0, 16)
+Sub.Position = UDim2.fromOffset(14, 46)
+Sub.BackgroundTransparency = 1
+Sub.Font = Enum.Font.Gotham
+Sub.TextSize = 11
+Sub.TextXAlignment = Enum.TextXAlignment.Left
+Sub.TextColor3 = Color3.fromRGB(120, 180, 210)
+Sub.Text = "steal a brainrot  ·  Y = open/close"
+Sub.Parent = Main
+
+local Close = Instance.new("TextButton")
+Close.Size = UDim2.fromOffset(28, 28)
+Close.Position = UDim2.new(1, -38, 0, 12)
+Close.BackgroundColor3 = Color3.fromRGB(30, 20, 30)
+Close.Text = "×"
+Close.Font = Enum.Font.GothamBold
+Close.TextSize = 18
+Close.TextColor3 = Color3.fromRGB(255, 120, 140)
+Close.Parent = Main
+corner(Close, 8)
+Close.MouseButton1Click:Connect(function()
+    State.GuiVisible = false
+    Main.Visible = false
+end)
+
+local Content = Instance.new("ScrollingFrame")
+Content.Size = UDim2.new(1, -20, 1, -80)
+Content.Position = UDim2.fromOffset(10, 70)
+Content.BackgroundTransparency = 1
+Content.BorderSizePixel = 0
+Content.ScrollBarThickness = 3
+Content.ScrollBarImageColor3 = Color3.fromRGB(0, 200, 255)
+Content.CanvasSize = UDim2.fromOffset(0, 560)
+Content.Parent = Main
+
+local List = Instance.new("UIListLayout")
+List.Padding = UDim.new(0, 10)
+List.SortOrder = Enum.SortOrder.LayoutOrder
+List.Parent = Content
+
+local function makeSection(name)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.new(1, 0, 0, 28)
+    f.BackgroundTransparency = 1
+    f.Parent = Content
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, 0, 1, 0)
+    l.BackgroundTransparency = 1
+    l.Font = Enum.Font.GothamBold
+    l.TextSize = 13
+    l.TextColor3 = Color3.fromRGB(0, 220, 255)
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.Text = "›  " .. name
+    l.Parent = f
+end
+
+local function makeToggle(name, getState, setState)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 38)
+    row.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
+    row.Parent = Content
+    corner(row, 9)
+    stroke(row, Color3.fromRGB(40, 55, 80), 1)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -70, 1, 0)
+    label.Position = UDim2.fromOffset(12, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 14
+    label.TextColor3 = Color3.fromRGB(230, 240, 250)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Text = name
+    label.Parent = row
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(52, 24)
+    btn.Position = UDim2.new(1, -62, 0.5, -12)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Parent = row
+    corner(btn, 7)
+
+    local function refresh()
+        local on = getState()
+        btn.Text = on and "ON" or "OFF"
+        btn.BackgroundColor3 = on and Color3.fromRGB(0, 170, 140) or Color3.fromRGB(55, 45, 60)
+    end
+    refresh()
+
+    btn.MouseButton1Click:Connect(function()
+        setState(not getState())
+        refresh()
+    end)
+    return refresh
+end
+
+local function makeSlider(name, min, max, getVal, setVal)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 52)
+    row.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
+    row.Parent = Content
+    corner(row, 9)
+    stroke(row, Color3.fromRGB(40, 55, 80), 1)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 0, 20)
+    label.Position = UDim2.fromOffset(12, 6)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 13
+    label.TextColor3 = Color3.fromRGB(220, 230, 245)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Text = name .. ": " .. tostring(getVal())
+    label.Parent = row
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, -24, 0, 8)
+    bar.Position = UDim2.fromOffset(12, 34)
+    bar.BackgroundColor3 = Color3.fromRGB(35, 45, 65)
+    bar.Parent = row
+    corner(bar, 4)
+
+    local fill = Instance.new("Frame")
+    fill.Size = UDim2.new((getVal() - min) / (max - min), 0, 1, 0)
+    fill.BackgroundColor3 = Color3.fromRGB(0, 210, 255)
+    fill.Parent = bar
+    corner(fill, 4)
+
+    local dragging = false
+    bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+        end
+    end)
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local rel = math.clamp((input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+            local val = math.floor(min + (max - min) * rel)
+            setVal(val)
+            fill.Size = UDim2.new(rel, 0, 1, 0)
+            label.Text = name .. ": " .. tostring(val)
+        end
+    end)
+end
+
+local function makeKeybindRow(featureName, keyName)
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, 0, 0, 38)
+    row.BackgroundColor3 = Color3.fromRGB(18, 22, 34)
+    row.Parent = Content
+    corner(row, 9)
+    stroke(row, Color3.fromRGB(40, 55, 80), 1)
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -90, 1, 0)
+    label.Position = UDim2.fromOffset(12, 0)
+    label.BackgroundTransparency = 1
+    label.Font = Enum.Font.GothamMedium
+    label.TextSize = 13
+    label.TextColor3 = Color3.fromRGB(220, 230, 245)
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Text = featureName
+    label.Parent = row
+
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.fromOffset(70, 24)
+    btn.Position = UDim2.new(1, -80, 0.5, -12)
+    btn.BackgroundColor3 = Color3.fromRGB(25, 35, 55)
+    btn.Font = Enum.Font.GothamBold
+    btn.TextSize = 12
+    btn.TextColor3 = Color3.fromRGB(0, 220, 255)
+    btn.Text = State.Keybinds[keyName].Name
+    btn.Parent = row
+    corner(btn, 6)
+    stroke(btn, Color3.fromRGB(0, 160, 200), 1)
+
+    btn.MouseButton1Click:Connect(function()
+        listeningForBind = keyName
+        btn.Text = "..."
+        btn.TextColor3 = Color3.fromRGB(255, 200, 80)
+    end)
+
+    return function()
+        btn.Text = State.Keybinds[keyName].Name
+        btn.TextColor3 = Color3.fromRGB(0, 220, 255)
+    end
+end
+
+-- Build
+makeSection("MOVEMENT")
+local refreshSpeed = makeToggle("Speed Boost", function() return State.SpeedEnabled end, function(v) State.SpeedEnabled = v end)
+makeSlider("WalkSpeed", 16, 80, function() return State.SpeedValue end, function(v) State.SpeedValue = v end)
+local refreshJump = makeToggle("Infinite Jump", function() return State.InfJump end, function(v) State.InfJump = v end)
+
+makeSection("COMBAT")
+local refreshBat = makeToggle("Auto Bat (chase + hit)", function() return State.AutoBat end, function(v) State.AutoBat = v end)
+
+makeSection("STEAL")
+local refreshSteal = makeToggle("Auto Steal (proximity)", function() return State.AutoSteal end, function(v) State.AutoSteal = v end)
+makeSlider("Steal Range", 8, 40, function() return State.StealRange end, function(v) State.StealRange = v end)
+
+makeSection("KEYBINDS  (click → press key)")
+local kbBat = makeKeybindRow("Auto Bat", "AutoBat")
+local kbSteal = makeKeybindRow("Auto Steal", "AutoSteal")
+local kbSpeed = makeKeybindRow("Speed Toggle", "Speed")
+local kbJump = makeKeybindRow("Inf Jump", "InfJump")
+local kbGui = makeKeybindRow("Open / Close GUI", "ToggleGui")
+
+function updateKeybindLabels()
+    kbBat()
+    kbSteal()
+    kbSpeed()
+    kbJump()
+    kbGui()
+end
+
+function updateToggles()
+    refreshSpeed()
+    refreshJump()
+    refreshBat()
+    refreshSteal()
+end
+
+-- drag
+local dragging, dragStart, startPos
+Main.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = Main.Position
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = false
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+print("[dbgoon22] loaded — Y = open/close GUI")
