@@ -1,0 +1,1516 @@
+-- MobileBrainrotGUI.lua
+-- Target: Steal a Brainrot
+-- PlaceId: 109983668079237
+-- Fixed: AutoFinder only joins public servers that have one of the high-value brainrots
+-- Speed: CFrame delta bypass (avoids common AssemblyLinearVelocity / WalkSpeed flags)
+
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local StarterGui = game:GetService("StarterGui")
+
+local player = Players.LocalPlayer
+local PLACE_ID = 109983668079237
+
+if game.PlaceId ~= PLACE_ID then
+    warn("MobileBrainrotGUI: wrong PlaceId")
+    return
+end
+
+-- =========================================================
+-- CONFIG — exact names from the table (case-sensitive match)
+-- =========================================================
+
+local TARGET_NAMES = {
+    ["Spyder Elephant"] = true,
+    ["Strawberry Elephant"] = true,
+    ["Headless Horseman"] = true,
+    ["Meowl"] = true,
+    ["John Pork"] = true,
+    ["Skibidi Toilet"] = true,
+    ["Griffin"] = true,
+    ["Dragon Aquanini"] = true,
+    ["Hydra Dragon Cannelloni"] = true,
+    ["Signore Carapace"] = true,
+    ["Dragon Cannelloni"] = true,
+    ["Love Love Bear"] = true,
+    ["Moby Bros"] = true,
+    ["Arcadragon"] = true,
+    ["Digi Narwhal"] = true,
+    ["La Supreme Combinasion"] = true,
+    ["Hydra Bunny"] = true,
+    ["Celestial Pegasus"] = true,
+    ["Cerberus"] = true,
+    ["Jelly Moby"] = true,
+    ["Venuspino"] = true,
+    ["Bumbatron"] = true,
+    ["Bunny and Eggy"] = true,
+    ["Popcuru and Fizzuru"] = true,
+    ["La Breakfast Combinasion"] = true,
+    ["Rosey and Teddy"] = true,
+    ["Capitano Moby"] = true,
+    ["Cooki and Milki"] = true,
+    ["Orchidox"] = true,
+    ["Burguro And Fryuro"] = true,
+    ["Los Secret Combinasionas"] = true,
+    ["Reinito Sleighito"] = true,
+    ["Fortunu and Cashuru"] = true,
+    ["Los Amigos"] = true,
+    ["Pizza and Ranch"] = true,
+    ["Antonio"] = true,
+    ["La Secret Combinasion"] = true,
+    ["Pancake and Syrup"] = true,
+    ["Fishino Clownino"] = true,
+    ["Foxini Lanternini"] = true,
+    ["Kalika Bros"] = true,
+    ["Los Sekolahs"] = true,
+    ["Sammyni Truckini"] = true,
+    ["Cash or Card"] = true,
+    ["Fragrama and Chocrama"] = true,
+    ["La Casa Boo"] = true,
+    ["La Fuse Machine"] = true,
+    ["Los Admins"] = true,
+    ["Duggy Bros"] = true,
+    ["La Food Combinasion"] = true,
+    ["Yetimatic"] = true,
+    ["S'more Serat"] = true,
+    ["Sammyni Cakini"] = true,
+    ["Boppin Bunny"] = true,
+    ["Spooky and Pumpky"] = true,
+    ["Cangurato Gelato"] = true,
+    ["Ginger Gerat"] = true,
+    ["La Ginger Sekolah"] = true,
+    ["Los Chillis"] = true,
+    ["Los Hackers"] = true,
+    ["Bearito Cabinito"] = true,
+    ["Capitano Americano"] = true,
+    ["Rubiko and Kubiko"] = true,
+    ["Examen Bros"] = true,
+    ["Los Spaghettis"] = true,
+    ["Rubrikiko"] = true,
+    ["Sammyni Fattini"] = true,
+    ["Festive 67"] = true,
+    ["Guest 666"] = true,
+    ["Quackini Snackini"] = true,
+    ["Queen Bee"] = true,
+    ["Ventoliero Pavonero"] = true,
+    ["Grabatron"] = true,
+    ["Pop Pop Petalini"] = true,
+    ["Cloverat Clapat"] = true,
+    ["Los Tictacs"] = true,
+    ["Spaghetti Tualetti"] = true,
+    ["Candini Fluffini"] = true,
+    ["Caylusaurus"] = true,
+    ["Hopilikalika Hopilikalako"] = true,
+    ["La Easter Grande"] = true,
+    ["Polaroidini"] = true,
+    ["Steakini Fattini"] = true,
+}
+
+-- backup threshold (only used if name not in list)
+local MIN_GEN = 50e6
+
+-- =========================================================
+-- REMOVE OLD GUI
+-- =========================================================
+
+local playerGui = player:WaitForChild("PlayerGui")
+
+local oldGui = playerGui:FindFirstChild("MobileBrainrotGUI")
+if oldGui then
+    oldGui:Destroy()
+end
+
+-- =========================================================
+-- STATE
+-- =========================================================
+
+local noclipActive = false
+local espActive = false
+local floatActive = false
+local flyActive = false
+local autoStealActive = false
+local autoStealRunning = false
+local boostSpeedActive = false
+local autoFinderActive = false
+
+local savedBasePosition = nil
+local savedHeight = nil
+
+local espHandles = {}
+
+local noclipConnection = nil
+local espHeartbeatConnection = nil
+local playerAddedConnection = nil
+
+local flyConnection = nil
+local floatConnection = nil
+local boostSpeedConnection = nil
+local autoFinderThread = nil
+
+local characterConnections = {}
+
+local originalCollision = {}
+
+local hopBlacklist = {}
+
+local autoStealToken = 0
+
+-- =========================================================
+-- NOTIFICATIONS
+-- =========================================================
+
+local function createNotification(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = tostring(title),
+            Text = tostring(text),
+            Duration = duration or 3
+        })
+    end)
+end
+
+-- =========================================================
+-- ESP
+-- =========================================================
+
+local function destroyESPForPlayer(targetPlayer)
+    local data = espHandles[targetPlayer]
+
+    if data then
+        if data.highlight and data.highlight.Parent then
+            data.highlight:Destroy()
+        end
+
+        if data.billboard and data.billboard.Parent then
+            data.billboard:Destroy()
+        end
+    end
+
+    espHandles[targetPlayer] = nil
+end
+
+local function destroyAllESP()
+    for targetPlayer in pairs(espHandles) do
+        destroyESPForPlayer(targetPlayer)
+    end
+
+    table.clear(espHandles)
+end
+
+local function disconnectCharacterConnections()
+    for targetPlayer, connection in pairs(characterConnections) do
+        if connection then
+            connection:Disconnect()
+        end
+
+        characterConnections[targetPlayer] = nil
+    end
+end
+
+local function createESP(targetPlayer)
+    if not targetPlayer or targetPlayer == player then
+        return nil
+    end
+
+    local character = targetPlayer.Character
+    if not character then
+        return nil
+    end
+
+    destroyESPForPlayer(targetPlayer)
+
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.Adornee = character
+    highlight.FillColor = Color3.fromRGB(255, 0, 0)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = character
+
+    local billboard = nil
+
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+
+    if humanoidRootPart then
+        billboard = Instance.new("BillboardGui")
+        billboard.Name = "ESP_Billboard"
+        billboard.AlwaysOnTop = true
+        billboard.Size = UDim2.new(4, 0, 1, 0)
+        billboard.StudsOffset = Vector3.new(0, 3, 0)
+        billboard.Adornee = humanoidRootPart
+        billboard.LightInfluence = 0
+        billboard.Parent = humanoidRootPart
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "ESP_Name"
+        nameLabel.Text = targetPlayer.Name
+        nameLabel.TextColor3 = Color3.new(1, 1, 1)
+        nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
+        nameLabel.TextStrokeTransparency = 0
+        nameLabel.TextSize = 14
+        nameLabel.Font = Enum.Font.GothamBold
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Size = UDim2.new(1, 0, 1, 0)
+        nameLabel.Parent = billboard
+    end
+
+    local data = {
+        highlight = highlight,
+        billboard = billboard
+    }
+
+    espHandles[targetPlayer] = data
+
+    return data
+end
+
+local function setupESPPlayer(targetPlayer)
+    if targetPlayer == player then
+        return
+    end
+
+    createESP(targetPlayer)
+
+    if characterConnections[targetPlayer] then
+        characterConnections[targetPlayer]:Disconnect()
+    end
+
+    characterConnections[targetPlayer] =
+        targetPlayer.CharacterAdded:Connect(function(character)
+            if not espActive then
+                return
+            end
+
+            local hrp = character:WaitForChild("HumanoidRootPart", 5)
+
+            if not espActive then
+                return
+            end
+
+            if hrp then
+                createESP(targetPlayer)
+            else
+                createESP(targetPlayer)
+            end
+        end)
+end
+
+local function toggleESP()
+    espActive = not espActive
+
+    if ESPBtn then
+        ESPBtn.Text = "ESP: " .. (espActive and "ON" or "OFF")
+        ESPBtn.BackgroundColor3 =
+            espActive
+            and Color3.fromRGB(50, 120, 50)
+            or Color3.fromRGB(70, 70, 70)
+    end
+
+    if espHeartbeatConnection then
+        espHeartbeatConnection:Disconnect()
+        espHeartbeatConnection = nil
+    end
+
+    if playerAddedConnection then
+        playerAddedConnection:Disconnect()
+        playerAddedConnection = nil
+    end
+
+    disconnectCharacterConnections()
+    destroyAllESP()
+
+    if not espActive then
+        return
+    end
+
+    for _, targetPlayer in ipairs(Players:GetPlayers()) do
+        setupESPPlayer(targetPlayer)
+    end
+
+    playerAddedConnection = Players.PlayerAdded:Connect(function(targetPlayer)
+        if espActive then
+            setupESPPlayer(targetPlayer)
+        end
+    end)
+
+    espHeartbeatConnection = RunService.Heartbeat:Connect(function()
+        if not espActive then
+            return
+        end
+
+        for targetPlayer, data in pairs(espHandles) do
+            if not targetPlayer or not targetPlayer.Parent then
+                destroyESPForPlayer(targetPlayer)
+                continue
+            end
+
+            local character = targetPlayer.Character
+
+            if character then
+                if data.highlight and data.highlight.Parent then
+                    data.highlight.Adornee = character
+                end
+
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+
+                if data.billboard and data.billboard.Parent and hrp then
+                    data.billboard.Adornee = hrp
+                end
+            end
+        end
+    end)
+end
+
+-- =========================================================
+-- GUI
+-- =========================================================
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MobileBrainrotGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = playerGui
+
+-- =========================================================
+-- GG BUTTON
+-- =========================================================
+
+local draggingGG = false
+local dragInputGG = nil
+local dragStartGG = nil
+local startPosGG = nil
+
+local ToggleBtn = Instance.new("TextButton")
+ToggleBtn.Size = UDim2.new(0, 60, 0, 60)
+ToggleBtn.Position = UDim2.new(0, 10, 0.5, -30)
+ToggleBtn.BackgroundColor3 = Color3.new(0, 0, 0)
+ToggleBtn.TextColor3 = Color3.new(1, 1, 1)
+ToggleBtn.Text = "GG"
+ToggleBtn.Font = Enum.Font.GothamBlack
+ToggleBtn.TextSize = 20
+ToggleBtn.ZIndex = 2
+ToggleBtn.Parent = ScreenGui
+
+local UICornerGG = Instance.new("UICorner")
+UICornerGG.CornerRadius = UDim.new(0, 12)
+UICornerGG.Parent = ToggleBtn
+
+local function updateGGInput(input)
+    local delta = input.Position - dragStartGG
+
+    ToggleBtn.Position = UDim2.new(
+        0,
+        startPosGG.X.Offset + delta.X,
+        0,
+        startPosGG.Y.Offset + delta.Y
+    )
+end
+
+ToggleBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        draggingGG = true
+        dragStartGG = input.Position
+        startPosGG = ToggleBtn.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                draggingGG = false
+            end
+        end)
+    end
+end)
+
+ToggleBtn.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        dragInputGG = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingGG and input == dragInputGG then
+        updateGGInput(input)
+    end
+end)
+
+-- =========================================================
+-- MAIN FRAME
+-- =========================================================
+
+local draggingMain = false
+local dragInputMain = nil
+local dragStartMain = nil
+local startPosMain = nil
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 220, 0, 310)
+MainFrame.Position = UDim2.new(0, 80, 0.5, -155)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.BackgroundTransparency = 0.3
+MainFrame.Visible = false
+MainFrame.Parent = ScreenGui
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = MainFrame
+
+local Credit = Instance.new("TextLabel")
+Credit.Size = UDim2.new(1, 0, 0, 16)
+Credit.Position = UDim2.new(0, 0, 1, -18)
+Credit.BackgroundTransparency = 1
+Credit.Text = "dbgoon22 priv"
+Credit.TextColor3 = Color3.fromRGB(180, 180, 180)
+Credit.Font = Enum.Font.Gotham
+Credit.TextSize = 11
+Credit.Parent = MainFrame
+
+local function updateMainInput(input)
+    local delta = input.Position - dragStartMain
+
+    MainFrame.Position = UDim2.new(
+        0,
+        startPosMain.X.Offset + delta.X,
+        0,
+        startPosMain.Y.Offset + delta.Y
+    )
+end
+
+MainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        draggingMain = true
+        dragStartMain = input.Position
+        startPosMain = MainFrame.Position
+
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                draggingMain = false
+            end
+        end)
+    end
+end)
+
+MainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        dragInputMain = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if draggingMain and input == dragInputMain then
+        updateMainInput(input)
+    end
+end)
+
+local function createButton(name, positionY)
+    local button = Instance.new("TextButton")
+
+    button.Size = UDim2.new(0.9, 0, 0, 26)
+    button.Position = UDim2.new(
+        0.05,
+        0,
+        0.03 + positionY * 0.105,
+        0
+    )
+
+    button.Text = name
+    button.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Font = Enum.Font.Gotham
+    button.TextSize = 13
+    button.Parent = MainFrame
+
+    local uiCorner = Instance.new("UICorner")
+    uiCorner.CornerRadius = UDim.new(0, 6)
+    uiCorner.Parent = button
+
+    return button
+end
+
+local NoclipBtn = createButton("NoClip: OFF", 0)
+local ESPBtn = createButton("ESP: OFF", 1)
+local FlyBtn = createButton("Fly: OFF", 2)
+local SetBaseBtn = createButton("Set Base Position", 3)
+local FloatBtn = createButton("Float to Base", 4)
+local AutoStealBtn = createButton("Auto Steal: OFF", 5)
+local BoostSpeedBtn = createButton("Boost Speed: OFF", 6)
+local AutoFinderBtn = createButton("AutoFinder: OFF", 7)
+
+ToggleBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = not MainFrame.Visible
+end)
+
+-- =========================================================
+-- FLY GUI
+-- =========================================================
+
+local FlyGui = Instance.new("Frame")
+FlyGui.Size = UDim2.new(0, 120, 0, 70)
+FlyGui.Position = UDim2.new(0, 80, 1, -110)
+FlyGui.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+FlyGui.BackgroundTransparency = 0.3
+FlyGui.Visible = false
+FlyGui.Parent = ScreenGui
+
+local UICornerFly = Instance.new("UICorner")
+UICornerFly.CornerRadius = UDim.new(0, 8)
+UICornerFly.Parent = FlyGui
+
+local FlyForwardBtn = Instance.new("TextButton")
+FlyForwardBtn.Size = UDim2.new(0.4, 0, 0.4, 0)
+FlyForwardBtn.Position = UDim2.new(0.3, 0, 0.1, 0)
+FlyForwardBtn.Text = "↑"
+FlyForwardBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+FlyForwardBtn.TextColor3 = Color3.new(1, 1, 1)
+FlyForwardBtn.Parent = FlyGui
+
+local FlyBackwardBtn = Instance.new("TextButton")
+FlyBackwardBtn.Size = UDim2.new(0.4, 0, 0.4, 0)
+FlyBackwardBtn.Position = UDim2.new(0.3, 0, 0.5, 0)
+FlyBackwardBtn.Text = "↓"
+FlyBackwardBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+FlyBackwardBtn.TextColor3 = Color3.new(1, 1, 1)
+FlyBackwardBtn.Parent = FlyGui
+
+-- =========================================================
+-- FLY INPUTS
+-- =========================================================
+
+local forwardActive = false
+local backwardActive = false
+
+FlyForwardBtn.MouseButton1Down:Connect(function()
+    forwardActive = true
+end)
+
+FlyForwardBtn.MouseButton1Up:Connect(function()
+    forwardActive = false
+end)
+
+FlyForwardBtn.MouseLeave:Connect(function()
+    forwardActive = false
+end)
+
+FlyBackwardBtn.MouseButton1Down:Connect(function()
+    backwardActive = true
+end)
+
+FlyBackwardBtn.MouseButton1Up:Connect(function()
+    backwardActive = false
+end)
+
+FlyBackwardBtn.MouseLeave:Connect(function()
+    backwardActive = false
+end)
+
+-- =========================================================
+-- NOCLIP
+-- =========================================================
+
+local function restoreCollision()
+    for part, value in pairs(originalCollision) do
+        if part and part.Parent then
+            part.CanCollide = value
+        end
+    end
+
+    table.clear(originalCollision)
+end
+
+local function toggleNoclip()
+    if autoStealActive then
+        return
+    end
+
+    noclipActive = not noclipActive
+
+    NoclipBtn.Text = "NoClip: " .. (noclipActive and "ON" or "OFF")
+    NoclipBtn.BackgroundColor3 =
+        noclipActive
+        and Color3.fromRGB(50, 120, 50)
+        or Color3.fromRGB(70, 70, 70)
+
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+
+    if not noclipActive then
+        restoreCollision()
+        return
+    end
+
+    noclipConnection = RunService.Stepped:Connect(function()
+        local character = player.Character
+
+        if not character then
+            return
+        end
+
+        for _, part in ipairs(character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                if originalCollision[part] == nil then
+                    originalCollision[part] = part.CanCollide
+                end
+
+                part.CanCollide = false
+            end
+        end
+    end)
+end
+
+-- =========================================================
+-- FLY
+-- =========================================================
+
+local function toggleFly()
+    if autoStealActive then
+        return
+    end
+
+    flyActive = not flyActive
+
+    FlyBtn.Text = "Fly: " .. (flyActive and "ON" or "OFF")
+    FlyBtn.BackgroundColor3 =
+        flyActive
+        and Color3.fromRGB(50, 120, 50)
+        or Color3.fromRGB(70, 70, 70)
+
+    FlyGui.Visible = flyActive
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    forwardActive = false
+    backwardActive = false
+
+    if not flyActive then
+        local character = player.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end
+
+        return
+    end
+
+    local character = player.Character
+    if not character then
+        flyActive = false
+        FlyBtn.Text = "Fly: OFF"
+        FlyGui.Visible = false
+        return
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+
+    if not humanoid or not hrp then
+        flyActive = false
+        FlyBtn.Text = "Fly: OFF"
+        FlyGui.Visible = false
+        return
+    end
+
+    humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+
+    local flySpeed = 50
+
+    flyConnection = RunService.Heartbeat:Connect(function()
+        if not flyActive then
+            return
+        end
+
+        if not character.Parent or not hrp.Parent then
+            flyActive = false
+            FlyGui.Visible = false
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+
+        if not camera then
+            return
+        end
+
+        local look = camera.CFrame.LookVector
+        local move = Vector3.zero
+
+        if forwardActive then
+            move += look
+        end
+
+        if backwardActive then
+            move -= look
+        end
+
+        if move.Magnitude > 0 then
+            move = move.Unit * flySpeed
+        end
+
+        hrp.AssemblyLinearVelocity = move
+    end)
+end
+
+-- =========================================================
+-- SET BASE
+-- =========================================================
+
+local function setBase()
+    if autoStealActive then
+        return
+    end
+
+    local character = player.Character
+    if not character then
+        return
+    end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return
+    end
+
+    savedBasePosition = hrp.Position + Vector3.new(0, 2, 0)
+
+    SetBaseBtn.Text = "Base Saved ✓"
+
+    task.delay(1, function()
+        if SetBaseBtn and SetBaseBtn.Parent then
+            SetBaseBtn.Text = "Set Base Position"
+        end
+    end)
+end
+
+-- =========================================================
+-- FLOAT
+-- =========================================================
+
+local function stopFloat()
+    floatActive = false
+
+    if floatConnection then
+        floatConnection:Disconnect()
+        floatConnection = nil
+    end
+
+    FloatBtn.Text = "Float to Base"
+end
+
+local function floatToBase()
+    if floatActive then
+        return
+    end
+
+    if not savedBasePosition then
+        createNotification("Error", "Base position not set", 3)
+        return
+    end
+
+    local character = player.Character
+    if not character then
+        return
+    end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then
+        return
+    end
+
+    floatActive = true
+    FloatBtn.Text = "Floating..."
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+    end
+
+    local startTime = time()
+    local speed = 40
+
+    if floatConnection then
+        floatConnection:Disconnect()
+    end
+
+    floatConnection = RunService.Heartbeat:Connect(function()
+        if not floatActive then
+            return
+        end
+
+        if not hrp or not hrp.Parent then
+            stopFloat()
+            return
+        end
+
+        local target = savedBasePosition
+        local dir = target - hrp.Position
+
+        if dir.Magnitude < 3 or time() - startTime > 15 then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            stopFloat()
+            return
+        end
+
+        hrp.AssemblyLinearVelocity = dir.Unit * speed
+    end)
+end
+
+-- =========================================================
+-- AUTOSTEAL
+-- =========================================================
+
+local function stopAutoSteal()
+    autoStealToken += 1
+
+    autoStealActive = false
+    autoStealRunning = false
+
+    stopFloat()
+
+    AutoStealBtn.Text = "Auto Steal: OFF"
+    AutoStealBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+end
+
+local function toggleAutoSteal()
+    if autoStealRunning then
+        return
+    end
+
+    if not savedBasePosition then
+        createNotification("Error", "Set base position first", 3)
+        return
+    end
+
+    autoStealActive = not autoStealActive
+
+    AutoStealBtn.Text =
+        "Auto Steal: " .. (autoStealActive and "ON" or "OFF")
+
+    AutoStealBtn.BackgroundColor3 =
+        autoStealActive
+        and Color3.fromRGB(50, 120, 50)
+        or Color3.fromRGB(70, 70, 70)
+
+    if not autoStealActive then
+        return
+    end
+
+    autoStealRunning = true
+
+    if noclipActive then
+        toggleNoclip()
+    end
+
+    if flyActive then
+        toggleFly()
+    end
+
+    if boostSpeedActive then
+        boostSpeedActive = false
+
+        if boostSpeedConnection then
+            boostSpeedConnection:Disconnect()
+            boostSpeedConnection = nil
+        end
+
+        BoostSpeedBtn.Text = "Boost Speed: OFF"
+        BoostSpeedBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    end
+
+    autoStealToken += 1
+    local currentToken = autoStealToken
+
+    task.spawn(function()
+        local character = player.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+        if not character or not hrp then
+            stopAutoSteal()
+            return
+        end
+
+        savedHeight = hrp.Position.Y
+
+        hrp.CFrame = CFrame.new(
+            hrp.Position + Vector3.new(0, 200, 0)
+        )
+
+        task.wait(1)
+
+        if currentToken ~= autoStealToken then
+            return
+        end
+
+        if not hrp.Parent then
+            stopAutoSteal()
+            return
+        end
+
+        local originalBase = savedBasePosition
+
+        savedBasePosition = Vector3.new(
+            originalBase.X,
+            hrp.Position.Y,
+            originalBase.Z
+        )
+
+        floatToBase()
+
+        local deadline = time() + 15
+
+        while floatActive and time() < deadline do
+            if currentToken ~= autoStealToken then
+                return
+            end
+
+            task.wait()
+        end
+
+        if currentToken ~= autoStealToken then
+            return
+        end
+
+        if floatActive then
+            stopFloat()
+        end
+
+        if hrp and hrp.Parent then
+            hrp.CFrame = CFrame.new(
+                hrp.Position.X,
+                savedHeight,
+                hrp.Position.Z
+            )
+
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end
+
+        savedBasePosition = originalBase
+
+        autoStealActive = false
+        autoStealRunning = false
+
+        AutoStealBtn.Text = "Auto Steal: OFF"
+        AutoStealBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    end)
+end
+
+-- =========================================================
+-- BOOST SPEED — CFrame delta (bypasses velocity / WalkSpeed checks)
+-- =========================================================
+
+local function toggleBoostSpeed()
+    if autoStealActive then
+        return
+    end
+
+    boostSpeedActive = not boostSpeedActive
+
+    BoostSpeedBtn.Text =
+        "Boost Speed: " .. (boostSpeedActive and "ON" or "OFF")
+
+    BoostSpeedBtn.BackgroundColor3 =
+        boostSpeedActive
+        and Color3.fromRGB(50, 120, 50)
+        or Color3.fromRGB(70, 70, 70)
+
+    if boostSpeedConnection then
+        boostSpeedConnection:Disconnect()
+        boostSpeedConnection = nil
+    end
+
+    if not boostSpeedActive then
+        local character = player.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+
+        if hrp then
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end
+
+        return
+    end
+
+    local character = player.Character
+    if not character then
+        boostSpeedActive = false
+        BoostSpeedBtn.Text = "Boost Speed: OFF"
+        BoostSpeedBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        return
+    end
+
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+
+    if not hrp then
+        boostSpeedActive = false
+        BoostSpeedBtn.Text = "Boost Speed: OFF"
+        BoostSpeedBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+        return
+    end
+
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+
+    if humanoid then
+        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+    end
+
+    -- CFrame step speed (studs/sec). 55–70 is usually safe for most servers.
+    local speed = 60
+
+    boostSpeedConnection = RunService.Heartbeat:Connect(function(dt)
+        if not boostSpeedActive then
+            return
+        end
+
+        if not character.Parent or not hrp.Parent then
+            boostSpeedActive = false
+            return
+        end
+
+        local camera = workspace.CurrentCamera
+        if not camera then
+            return
+        end
+
+        local look = camera.CFrame.LookVector
+        local horizontal = Vector3.new(look.X, 0, look.Z)
+
+        if horizontal.Magnitude > 0.001 then
+            local dir = horizontal.Unit
+            -- pure CFrame move — no high velocity flag
+            hrp.CFrame = hrp.CFrame + dir * speed * dt
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        else
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end
+    end)
+end
+
+-- =========================================================
+-- PARSE GENERATION
+-- =========================================================
+
+local function parseGen(text)
+    if not text then
+        return 0
+    end
+
+    text = tostring(text)
+        :lower()
+        :gsub("%$", "")
+        :gsub(",", "")
+        :gsub("%s", "")
+
+    local num = tonumber(text:match("[%d%.]+")) or 0
+
+    if text:find("b") then
+        return num * 1e9
+    elseif text:find("m") then
+        return num * 1e6
+    elseif text:find("k") then
+        return num * 1e3
+    end
+
+    return num
+end
+
+-- =========================================================
+-- SCAN CURRENT SERVER — only the listed brainrots
+-- =========================================================
+
+local function scanCurrentServer()
+    local found = {}
+
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then
+        return found
+    end
+
+    for _, plot in ipairs(plots:GetChildren()) do
+        local podiums = plot:FindFirstChild("AnimalPodiums")
+
+        if not podiums then
+            continue
+        end
+
+        for _, podium in ipairs(podiums:GetChildren()) do
+            local base = podium:FindFirstChild("Base")
+            local spawn = base and base:FindFirstChild("Spawn")
+
+            local attach = spawn and (
+                spawn:FindFirstChild("Attachment")
+                or spawn:FindFirstChild("PromptAttachment")
+            )
+
+            if not attach then
+                continue
+            end
+
+            local overhead =
+                attach:FindFirstChild("AnimalOverhead")
+                or attach:FindFirstChildWhichIsA("BillboardGui")
+
+            if not overhead then
+                continue
+            end
+
+            local nameLabel =
+                overhead:FindFirstChild("DisplayName")
+                or overhead:FindFirstChild("Name")
+                or overhead:FindFirstChildWhichIsA("TextLabel")
+
+            local genLabel =
+                overhead:FindFirstChild("Generation")
+                or overhead:FindFirstChild("Income")
+                or overhead:FindFirstChild("Gen")
+
+            local name = nameLabel and tostring(nameLabel.Text) or ""
+            local gen = genLabel and parseGen(genLabel.Text) or 0
+
+            -- strict: only the listed names (or extreme gen as safety net)
+            if TARGET_NAMES[name] or gen >= MIN_GEN then
+                table.insert(found, {
+                    name = name,
+                    gen = gen,
+                    plot = plot.Name
+                })
+            end
+        end
+    end
+
+    return found
+end
+
+-- =========================================================
+-- SERVER LIST
+-- =========================================================
+
+local function getServers(cursor)
+    local url =
+        ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Asc&limit=100")
+        :format(PLACE_ID)
+
+    if cursor then
+        url = url .. "&cursor=" .. HttpService:UrlEncode(cursor)
+    end
+
+    local ok, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+
+    if not ok or not body then
+        return nil
+    end
+
+    local decodeOk, data = pcall(function()
+        return HttpService:JSONDecode(body)
+    end)
+
+    if not decodeOk or not data then
+        return nil
+    end
+
+    return data
+end
+
+local function getNextServer()
+    local cursor = nil
+
+    -- try more pages so we actually find open public servers
+    for _ = 1, 5 do
+        local data = getServers(cursor)
+
+        if not data or not data.data then
+            return nil
+        end
+
+        for _, server in ipairs(data.data) do
+            if server.id ~= game.JobId
+                and not hopBlacklist[server.id]
+                and server.playing < server.maxPlayers
+                and server.playing > 0 then
+
+                return server.id
+            end
+        end
+
+        cursor = data.nextPageCursor
+
+        if not cursor then
+            break
+        end
+    end
+
+    return nil
+end
+
+-- =========================================================
+-- SERVER HOP
+-- =========================================================
+
+local function hopServer()
+    local jobId = getNextServer()
+
+    if not jobId then
+        createNotification(
+            "AutoFinder",
+            "No free public servers, retrying...",
+            2
+        )
+
+        -- clear blacklist so we can retry older servers
+        table.clear(hopBlacklist)
+        return false
+    end
+
+    hopBlacklist[jobId] = true
+
+    createNotification(
+        "AutoFinder",
+        "Hopping public server...",
+        2
+    )
+
+    local ok, err = pcall(function()
+        TeleportService:TeleportToPlaceInstance(
+            PLACE_ID,
+            jobId,
+            player
+        )
+    end)
+
+    if not ok then
+        hopBlacklist[jobId] = nil
+
+        createNotification(
+            "Teleport Error",
+            tostring(err),
+            4
+        )
+
+        return false
+    end
+
+    return true
+end
+
+-- =========================================================
+-- AUTOFINDER — fixed: only stays / notifies on listed brainrots
+-- =========================================================
+
+local function stopAutoFinder()
+    autoFinderActive = false
+
+    if autoFinderThread then
+        task.cancel(autoFinderThread)
+        autoFinderThread = nil
+    end
+
+    AutoFinderBtn.Text = "AutoFinder: OFF"
+    AutoFinderBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+end
+
+local function toggleAutoFinder()
+    if autoFinderActive then
+        stopAutoFinder()
+        return
+    end
+
+    autoFinderActive = true
+
+    AutoFinderBtn.Text = "AutoFinder: ON"
+    AutoFinderBtn.BackgroundColor3 = Color3.fromRGB(50, 120, 50)
+
+    createNotification(
+        "AutoFinder",
+        "Scanning for listed brainrots only...",
+        3
+    )
+
+    autoFinderThread = task.spawn(function()
+        while autoFinderActive do
+            -- give plots a moment to load after hop
+            task.wait(1.5)
+
+            if not autoFinderActive then
+                return
+            end
+
+            local hits = scanCurrentServer()
+
+            if #hits > 0 then
+                local parts = {}
+
+                for _, hit in ipairs(hits) do
+                    table.insert(
+                        parts,
+                        string.format(
+                            "%s (%.1fM/s)",
+                            hit.name,
+                            hit.gen / 1e6
+                        )
+                    )
+                end
+
+                createNotification(
+                    "FOUND!",
+                    table.concat(parts, " | "),
+                    10
+                )
+
+                autoFinderActive = false
+                AutoFinderBtn.Text = "AutoFinder: FOUND"
+                AutoFinderBtn.BackgroundColor3 =
+                    Color3.fromRGB(200, 160, 0)
+
+                autoFinderThread = nil
+                return
+            end
+
+            if not autoFinderActive then
+                return
+            end
+
+            -- only hop when current server has zero listed targets
+            hopServer()
+
+            -- wait for teleport / new server load
+            task.wait(5)
+        end
+    end)
+end
+
+-- =========================================================
+-- CHARACTER ADDED
+-- =========================================================
+
+player.CharacterAdded:Connect(function(character)
+    if autoStealActive or autoStealRunning then
+        stopAutoSteal()
+    end
+
+    if noclipConnection then
+        noclipConnection:Disconnect()
+        noclipConnection = nil
+    end
+
+    restoreCollision()
+
+    noclipActive = false
+    NoclipBtn.Text = "NoClip: OFF"
+    NoclipBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+
+    if flyConnection then
+        flyConnection:Disconnect()
+        flyConnection = nil
+    end
+
+    flyActive = false
+    forwardActive = false
+    backwardActive = false
+
+    FlyBtn.Text = "Fly: OFF"
+    FlyBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+    FlyGui.Visible = false
+
+    stopFloat()
+
+    if boostSpeedConnection then
+        boostSpeedConnection:Disconnect()
+        boostSpeedConnection = nil
+    end
+
+    boostSpeedActive = false
+
+    BoostSpeedBtn.Text = "Boost Speed: OFF"
+    BoostSpeedBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+
+    if espActive then
+        task.defer(function()
+            if espActive then
+                destroyAllESP()
+
+                for _, targetPlayer in ipairs(Players:GetPlayers()) do
+                    setupESPPlayer(targetPlayer)
+                end
+            end
+        end)
+    end
+end)
+
+-- =========================================================
+-- PLAYER REMOVING
+-- =========================================================
+
+Players.PlayerRemoving:Connect(function(targetPlayer)
+    destroyESPForPlayer(targetPlayer)
+
+    if characterConnections[targetPlayer] then
+        characterConnections[targetPlayer]:Disconnect()
+        characterConnections[targetPlayer] = nil
+    end
+end)
+
+-- =========================================================
+-- BUTTON CONNECTIONS
+-- =========================================================
+
+NoclipBtn.MouseButton1Click:Connect(toggleNoclip)
+ESPBtn.MouseButton1Click:Connect(toggleESP)
+FlyBtn.MouseButton1Click:Connect(toggleFly)
+
+SetBaseBtn.MouseButton1Click:Connect(setBase)
+FloatBtn.MouseButton1Click:Connect(floatToBase)
+
+AutoStealBtn.MouseButton1Click:Connect(toggleAutoSteal)
+BoostSpeedBtn.MouseButton1Click:Connect(toggleBoostSpeed)
+AutoFinderBtn.MouseButton1Click:Connect(toggleAutoFinder)
+
+-- =========================================================
+-- FINAL CLEANUP
+-- =========================================================
+
+ScreenGui.Destroying:Connect(function()
+    if noclipConnection then
+        noclipConnection:Disconnect()
+    end
+
+    if espHeartbeatConnection then
+        espHeartbeatConnection:Disconnect()
+    end
+
+    if playerAddedConnection then
+        playerAddedConnection:Disconnect()
+    end
+
+    if flyConnection then
+        flyConnection:Disconnect()
+    end
+
+    if floatConnection then
+        floatConnection:Disconnect()
+    end
+
+    if boostSpeedConnection then
+        boostSpeedConnection:Disconnect()
+    end
+
+    if autoFinderThread then
+        task.cancel(autoFinderThread)
+    end
+
+    disconnectCharacterConnections()
+    restoreCollision()
+    destroyAllESP()
+end)
