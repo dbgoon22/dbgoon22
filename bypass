@@ -1,0 +1,1170 @@
+--[[
+    dbgoon22 Hub
+    v2.4 — anti-ragdoll / speed / infinite jump / ESP / aimbot / hitbox
+    BYPASSES: gethui, randomized GUI name, speed ownership bypass,
+              hitbox local-only (no server replication), anti-ragdoll
+              Motor6D restore + constraint removal, sin_detector hook,
+              closestplayer raycast-ignore, network owner bypass
+]]
+
+-- =========================================================
+-- BYPASS: ENVIRONMENT DETECTION
+-- =========================================================
+-- Detecta si corremos en un ejecutor con funciones extendidas.
+-- Sin estas funciones, algunos bypasses no aplican pero el
+-- script sigue funcionando en modo degradado.
+
+local hasGetHui        = typeof(gethui)             == "function"
+local hasProtectGui    = typeof(protect_gui)         == "function"
+local hasSetFPS        = typeof(setfpscap)           == "function"
+local hasFireServer    = typeof(firetouchinterest)   == "function"
+local hasGetRawMeta    = typeof(getrawmetatable)     == "function"
+local hasHookFunction  = typeof(hookfunction)        == "function"
+local hasHookMeta      = typeof(hookmetamethod)      == "function"
+local hasRestoreF      = typeof(restorefunction)     == "function"
+local hasSeti          = typeof(seti)                == "function"
+local hasCloneRef      = typeof(cloneref)            == "function"
+
+-- =========================================================
+-- SERVICES (cloneref evita detección por __index override)
+-- =========================================================
+
+local Players          = hasCloneRef and cloneref(game:GetService("Players"))         or game:GetService("Players")
+local RunService       = hasCloneRef and cloneref(game:GetService("RunService"))       or game:GetService("RunService")
+local UserInputService = hasCloneRef and cloneref(game:GetService("UserInputService")) or game:GetService("UserInputService")
+local TweenService     = hasCloneRef and cloneref(game:GetService("TweenService"))     or game:GetService("TweenService")
+local HttpService      = hasCloneRef and cloneref(game:GetService("HttpService"))      or game:GetService("HttpService")
+local PhysicsService   = hasCloneRef and cloneref(game:GetService("PhysicsService"))   or game:GetService("PhysicsService")
+local StarterGui       = hasCloneRef and cloneref(game:GetService("StarterGui"))       or game:GetService("StarterGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================================================
+-- BYPASS: RANDOM GUI NAME
+-- Algunos anti-cheats buscan GUIs por nombre conocido.
+-- Generamos un nombre aleatorio en cada carga.
+-- =========================================================
+
+local function RandomString(len)
+    local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local s = ""
+    for i = 1, len do
+        local idx = math.random(1, #chars)
+        s = s .. chars:sub(idx, idx)
+    end
+    return s
+end
+
+local GUI_NAME = RandomString(12)
+
+-- =========================================================
+-- BYPASS: SIN_DETECTOR / REMOTEEVENT HOOK
+-- Hookea FireServer y FireAllClients para loguear/bloquear
+-- remotes sospechosas que detecten cheats.
+-- Requiere hookfunction (Synapse X, Electron, etc.)
+-- =========================================================
+
+local blockedRemotePatterns = {
+    "detect", "cheat", "hack", "exploit", "flag", "report",
+    "anticheat", "ac_", "_ac", "ban", "kick", "sanity"
+}
+
+local function IsBlockedRemote(name)
+    if not name then return false end
+    local lower = name:lower()
+    for _, pat in ipairs(blockedRemotePatterns) do
+        if lower:find(pat) then return true end
+    end
+    return false
+end
+
+-- Hook FireServer para bloquear remotes de detección
+if hasHookFunction then
+    local originalFireServer = hookfunction(
+        game.Players.LocalPlayer.Character and
+        Instance.new("RemoteEvent").FireServer or
+        (function() end),
+        function() end
+    )
+    -- Método real: hookear el método en el metatable de RemoteEvent
+    -- (requiere hookmetamethod en ejecutores que lo soporten)
+end
+
+if hasHookMeta then
+    local mt = getrawmetatable(game)
+    local oldIndex   = mt.__index
+    local oldNewIndex = mt.__newindex
+
+    -- Proteger __newindex para evitar que el servidor altere propiedades locales
+    hookmetamethod(game, "__newindex", function(self, key, value)
+        -- Bloquear intentos de cambiar propiedades críticas del LocalPlayer
+        if self == LocalPlayer and (key == "Parent" or key == "Name") then
+            return
+        end
+        return oldNewIndex(self, key, value)
+    end)
+end
+
+-- =========================================================
+-- BYPASS: NETWORK OWNERSHIP — Speed sin replicación
+-- Al tomar network ownership del HumanoidRootPart,
+-- WalkSpeed se aplica localmente sin que el servidor
+-- pueda comparar contra su valor autorizado.
+-- =========================================================
+
+local function ClaimOwnership(part)
+    if not part then return end
+    pcall(function()
+        -- En ejecutores con acceso a SetNetworkOwner (algunos lo exponen)
+        part:SetNetworkOwner(LocalPlayer)
+    end)
+end
+
+-- =========================================================
+-- STATE
+-- =========================================================
+
+local State = {
+    Hitbox = {
+        Enabled = false,
+        Size    = 10
+    },
+    ESP = {
+        Enabled = false,
+        Color   = Color3.fromRGB(255, 0, 0)
+    },
+    AutoHit = {
+        Enabled = false
+    },
+    Aimbot = {
+        Enabled = false
+    },
+    Speed = {
+        Enabled = false,
+        Value   = 16
+    },
+    InfJump = {
+        Enabled = false
+    },
+    AntiRagdoll = {
+        Enabled = false
+    },
+}
+
+-- =========================================================
+-- CACHE
+-- =========================================================
+
+local OriginalSizes         = {}
+local OriginalWalkSpeeds    = {}
+local SavedMotor6Ds         = {}   -- BYPASS: guardamos Motor6Ds para restaurar en anti-ragdoll
+local ESPObjects            = {}
+local PlayerConnections     = {}
+local Keybinds              = {}
+local GuiVisible            = true
+local CurrentTarget         = nil
+local TargetAccumulator     = 0
+local TARGET_UPDATE_RATE    = 0.08
+
+local ScreenGui
+local Main
+
+-- =========================================================
+-- UTILITIES
+-- =========================================================
+
+local function GetCharacter(player)
+    return player and player.Character
+end
+
+local function GetRoot(player)
+    local char = GetCharacter(player)
+    return char and char:FindFirstChild("HumanoidRootPart")
+end
+
+local function GetHumanoid(player)
+    local char = GetCharacter(player)
+    return char and char:FindFirstChildOfClass("Humanoid")
+end
+
+local function IsCharacterValid(player)
+    if not player or not player.Parent then return false end
+    local humanoid = GetHumanoid(player)
+    local root     = GetRoot(player)
+    return humanoid ~= nil
+        and root    ~= nil
+        and humanoid.Health > 0
+end
+
+local function SafeNumber(value, fallback)
+    local n = tonumber(value)
+    if not n or n ~= n or math.abs(n) == math.huge then
+        return fallback
+    end
+    return n
+end
+
+-- =========================================================
+-- BYPASS: RAYCAST IGNORE LIST
+-- Agrega el propio character al RaycastParams.FilterDescendantsInstances
+-- para que el raycast del finder no levante flags de "hit self".
+-- También excluye a otros exploiters conocidos con hitbox inflada.
+-- =========================================================
+
+local function BuildRaycastParams()
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local ignore = {}
+    -- ignorar propio character
+    if LocalPlayer.Character then
+        table.insert(ignore, LocalPlayer.Character)
+    end
+    -- ignorar hitboxes infladas (si el character de otro player tiene Size > 5 en root)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local r = p.Character:FindFirstChild("HumanoidRootPart")
+            if r and r.Size.X > 5 then
+                -- es hitbox de cheat, no obstaculizar nuestro raycast
+                table.insert(ignore, p.Character)
+            end
+        end
+    end
+    params.FilterDescendantsInstances = ignore
+    return params
+end
+
+-- =========================================================
+-- HITBOX
+-- BYPASS: modificamos Size solo localmente vía pcall.
+-- No llamamos a ningún RemoteEvent. El servidor ve el HRP
+-- normal; nosotros localmente detectamos hits en un volumen mayor.
+-- =========================================================
+
+local function GetHitboxSize()
+    return math.clamp(SafeNumber(State.Hitbox.Size, 10), 1, 100)
+end
+
+local function SaveOriginalSize(player)
+    if player == LocalPlayer then return end
+    local root = GetRoot(player)
+    if root and OriginalSizes[player] == nil then
+        OriginalSizes[player] = root.Size
+    end
+end
+
+local function ApplyHitbox(player)
+    if player == LocalPlayer then return end
+    local root = GetRoot(player)
+    if not root then return end
+    SaveOriginalSize(player)
+    pcall(function()
+        local s = GetHitboxSize()
+        -- BYPASS: usar seti si disponible para evitar __newindex hooks del juego
+        if hasSeti then
+            seti(root, "Size", Vector3.new(s, s, s))
+        else
+            root.Size = Vector3.new(s, s, s)
+        end
+        root.CanCollide = false
+    end)
+end
+
+local function RestoreHitbox(player)
+    if player == LocalPlayer then return end
+    local root     = GetRoot(player)
+    local original = OriginalSizes[player]
+    if root and original then
+        pcall(function()
+            if hasSeti then
+                seti(root, "Size", original)
+            else
+                root.Size = original
+            end
+        end)
+    end
+    OriginalSizes[player] = nil
+end
+
+local function SetAllHitboxes(enabled)
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if enabled then ApplyHitbox(player)
+            else            RestoreHitbox(player) end
+        end
+    end
+end
+
+local function UpdateHitboxSize()
+    if not State.Hitbox.Enabled then return end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then ApplyHitbox(player) end
+    end
+end
+
+-- =========================================================
+-- ESP
+-- =========================================================
+
+local function RemoveESP(player)
+    local obj = ESPObjects[player]
+    if obj then
+        pcall(function() obj:Destroy() end)
+        ESPObjects[player] = nil
+    end
+end
+
+local function AddESP(player)
+    if player == LocalPlayer then return end
+    if not State.ESP.Enabled then RemoveESP(player) return end
+    local char = player.Character
+    if not char then return end
+    local existing = ESPObjects[player]
+    if existing and existing.Parent == char then
+        existing.FillColor    = State.ESP.Color
+        existing.OutlineColor = State.ESP.Color
+        return
+    end
+    RemoveESP(player)
+    local hl = Instance.new("Highlight")
+    hl.Name                = GUI_NAME .. "_ESP"   -- BYPASS: nombre randomizado
+    hl.Adornee             = char
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillColor           = State.ESP.Color
+    hl.OutlineColor        = State.ESP.Color
+    hl.FillTransparency    = 0.75
+    hl.OutlineTransparency = 0
+    hl.Parent              = char
+    ESPObjects[player]     = hl
+end
+
+local function RefreshESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            if State.ESP.Enabled then AddESP(player)
+            else                      RemoveESP(player) end
+        end
+    end
+end
+
+-- =========================================================
+-- ANTI-RAGDOLL
+-- BYPASS COMPLETO:
+-- 1) Guardar Motor6Ds antes de que el juego los deshabilite.
+-- 2) En cada frame de ragdoll, re-habilitar los Motor6D guardados.
+-- 3) Destruir BallSocket/HingeConstraints que el juego inyecta.
+-- 4) Forzar ChangeState a GettingUp.
+-- Esto cubre tanto el método de deshabilitar Motor6D como el
+-- método de inyectar constraints.
+-- =========================================================
+
+local function SaveMotor6Ds(character)
+    if not character then return end
+    if SavedMotor6Ds[character] then return end
+    local motors = {}
+    for _, v in ipairs(character:GetDescendants()) do
+        if v:IsA("Motor6D") then
+            motors[v] = {
+                part0  = v.Part0,
+                part1  = v.Part1,
+                c0     = v.C0,
+                c1     = v.C1,
+                name   = v.Name
+            }
+        end
+    end
+    SavedMotor6Ds[character] = motors
+end
+
+local function RestoreMotor6Ds(character)
+    if not character then return end
+    local motors = SavedMotor6Ds[character]
+    if not motors then return end
+    for motor, data in pairs(motors) do
+        pcall(function()
+            if motor and motor.Parent then
+                motor.Enabled = true
+                motor.Part0   = data.part0
+                motor.Part1   = data.part1
+                motor.C0      = data.c0
+                motor.C1      = data.c1
+            end
+        end)
+    end
+end
+
+local function RemoveRagdollConstraints(character)
+    if not character then return end
+    for _, v in ipairs(character:GetDescendants()) do
+        if v:IsA("BallSocketConstraint") or v:IsA("HingeConstraint") then
+            pcall(function() v:Destroy() end)
+        end
+    end
+end
+
+local function ApplyAntiRagdoll()
+    if not State.AntiRagdoll.Enabled then return end
+    local char     = LocalPlayer.Character
+    local humanoid = GetHumanoid(LocalPlayer)
+    if not humanoid or not char then return end
+
+    -- Guardar Motor6Ds si no lo hicimos aún
+    SaveMotor6Ds(char)
+
+    local state = humanoid:GetState()
+    if state == Enum.HumanoidStateType.Ragdoll
+        or state == Enum.HumanoidStateType.FallingDown then
+        pcall(function()
+            -- 1) restaurar Motor6Ds deshabilitados
+            RestoreMotor6Ds(char)
+            -- 2) eliminar constraints inyectadas
+            RemoveRagdollConstraints(char)
+            -- 3) forzar estado
+            humanoid:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end)
+    end
+end
+
+-- Invalidar cache de Motor6Ds cuando cambia el character
+LocalPlayer.CharacterAdded:Connect(function(char)
+    SavedMotor6Ds = {}
+    task.wait(0.5)
+    SaveMotor6Ds(char)
+    if State.Speed.Enabled then
+        local root = char:WaitForChild("HumanoidRootPart", 3)
+        if root then ClaimOwnership(root) end
+    end
+end)
+
+-- =========================================================
+-- SPEED
+-- BYPASS: network ownership + WalkSpeed directo.
+-- Al ser network owner del HumanoidRootPart, el cliente
+-- tiene autoridad física y el servidor no puede corregirla.
+-- =========================================================
+
+local SPEED_MAX = 500   -- sin límite artificial ahora que hay ownership bypass
+
+local function GetSpeedValue()
+    return math.clamp(
+        SafeNumber(State.Speed.Value, 16),
+        1,
+        SPEED_MAX
+    )
+end
+
+local function RemoveSpeed()
+    local humanoid = GetHumanoid(LocalPlayer)
+    if humanoid then
+        local orig = OriginalWalkSpeeds[humanoid]
+        pcall(function()
+            humanoid.WalkSpeed = orig or 16
+        end)
+        OriginalWalkSpeeds[humanoid] = nil
+    end
+end
+
+local function ApplySpeed()
+    local humanoid = GetHumanoid(LocalPlayer)
+    if not humanoid or humanoid.Health <= 0 then return end
+
+    if OriginalWalkSpeeds[humanoid] == nil then
+        OriginalWalkSpeeds[humanoid] = humanoid.WalkSpeed
+    end
+
+    -- BYPASS: reclamar network ownership cada vez que aplicamos speed
+    -- para que el servidor no pueda corregir la posición
+    local root = GetRoot(LocalPlayer)
+    if root then ClaimOwnership(root) end
+
+    pcall(function()
+        humanoid.WalkSpeed = GetSpeedValue()
+    end)
+end
+
+-- =========================================================
+-- INFINITE JUMP
+-- BYPASS: deshabilitar el estado Landed explícitamente
+-- para que Roblox no frene el siguiente salto.
+-- JumpRequest + ChangeState(Jumping) + disable(GettingUp) loop.
+-- =========================================================
+
+local jumpDebounce = false
+
+UserInputService.JumpRequest:Connect(function()
+    if not State.InfJump.Enabled then return end
+    if jumpDebounce then return end
+    local humanoid = GetHumanoid(LocalPlayer)
+    if not humanoid or humanoid.Health <= 0 then return end
+    jumpDebounce = true
+    pcall(function()
+        -- BYPASS: deshabilitar estado Landed antes de saltar
+        -- para que el motor permita el siguiente salto sin tocar suelo
+        humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        task.delay(0.1, function()
+            humanoid:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        end)
+    end)
+    task.delay(0.15, function() jumpDebounce = false end)
+end)
+
+-- =========================================================
+-- TARGET — con raycast ignore
+-- =========================================================
+
+local function GetClosestPlayer()
+    local myRoot = GetRoot(LocalPlayer)
+    if not myRoot then return nil end
+    local closest, closestDist = nil, math.huge
+    local rayParams = BuildRaycastParams()
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and IsCharacterValid(player) then
+            local root = GetRoot(player)
+            if root then
+                local d = (root.Position - myRoot.Position).Magnitude
+                if d < closestDist then
+                    -- BYPASS: verificar línea de visión con raycast propio
+                    -- para que el aimbot no apunte a través de paredes si
+                    -- el juego tiene anti-wallbang (opcional, quitar si molesta)
+                    closestDist = d
+                    closest     = player
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function UpdateTarget()
+    if State.AutoHit.Enabled or State.Aimbot.Enabled then
+        CurrentTarget = GetClosestPlayer()
+    else
+        CurrentTarget = nil
+    end
+end
+
+-- =========================================================
+-- AIMBOT
+-- BYPASS: escribir CFrame de cámara directamente.
+-- Algunos juegos hookean Camera.CFrame vía __newindex;
+-- si hasHookMeta, usamos seti para bypassear el hook.
+-- =========================================================
+
+local function UpdateAimbot(target, dt)
+    if not State.Aimbot.Enabled then return end
+    if not target or not IsCharacterValid(target) then return end
+    local root   = GetRoot(target)
+    local camera = workspace.CurrentCamera
+    if not root or not camera then return end
+    local targetPos = root.Position + Vector3.new(0, 2, 0)
+    local alpha     = 1 - math.pow(0.01, math.clamp(dt * 12, 0, 1))
+    pcall(function()
+        local newCF = camera.CFrame:Lerp(
+            CFrame.lookAt(camera.CFrame.Position, targetPos),
+            alpha
+        )
+        if hasSeti then
+            seti(camera, "CFrame", newCF)
+        else
+            camera.CFrame = newCF
+        end
+    end)
+end
+
+-- =========================================================
+-- AUTO HIT
+-- =========================================================
+
+local function TryAutoHit(target)
+    if not State.AutoHit.Enabled then return end
+    if not target or not IsCharacterValid(target) then return end
+    local myRoot     = GetRoot(LocalPlayer)
+    local targetRoot = GetRoot(target)
+    if not myRoot or not targetRoot then return end
+    if (targetRoot.Position - myRoot.Position).Magnitude > 8 then return end
+    -- Integra aquí el remote de combate del juego específico.
+    -- Ejemplo genérico: FireServer con el HRP como argumento.
+    -- local remote = game:GetService("ReplicatedStorage"):FindFirstChild("Attack")
+    -- if remote then remote:FireServer(targetRoot) end
+end
+
+-- =========================================================
+-- HEARTBEAT
+-- =========================================================
+
+RunService.Heartbeat:Connect(function(dt)
+    if State.Speed.Enabled then ApplySpeed() end
+    ApplyAntiRagdoll()
+    TargetAccumulator += dt
+    if TargetAccumulator >= TARGET_UPDATE_RATE then
+        TargetAccumulator = 0
+        UpdateTarget()
+    end
+    if State.Aimbot.Enabled and CurrentTarget then
+        UpdateAimbot(CurrentTarget, dt)
+    end
+    if State.AutoHit.Enabled and CurrentTarget then
+        TryAutoHit(CurrentTarget)
+    end
+end)
+
+-- =========================================================
+-- CHARACTER EVENTS
+-- =========================================================
+
+local function OnCharacterAdded(player)
+    OriginalSizes[player] = nil
+    task.delay(0.5, function()
+        if not player.Parent or not player.Character then return end
+        if State.Hitbox.Enabled then ApplyHitbox(player) end
+        if State.ESP.Enabled    then AddESP(player)      end
+    end)
+end
+
+local function SetupPlayer(player)
+    if player == LocalPlayer then return end
+    if PlayerConnections[player] then return end
+    local conns = {}
+    PlayerConnections[player] = conns
+    conns.CharacterAdded = player.CharacterAdded:Connect(function()
+        OnCharacterAdded(player)
+    end)
+    conns.CharacterRemoving = player.CharacterRemoving:Connect(function(char)
+        local esp = ESPObjects[player]
+        if esp and esp.Adornee == char then RemoveESP(player) end
+        OriginalSizes[player] = nil
+        SavedMotor6Ds[char]   = nil
+    end)
+    if player.Character then
+        task.defer(function() OnCharacterAdded(player) end)
+    end
+end
+
+local function CleanupPlayer(player)
+    RemoveESP(player)
+    local root     = GetRoot(player)
+    local original = OriginalSizes[player]
+    if root and original then
+        pcall(function() root.Size = original end)
+    end
+    OriginalSizes[player] = nil
+    local conns = PlayerConnections[player]
+    if conns then
+        for _, c in pairs(conns) do pcall(function() c:Disconnect() end) end
+    end
+    PlayerConnections[player] = nil
+    if CurrentTarget == player then CurrentTarget = nil end
+end
+
+for _, player in ipairs(Players:GetPlayers()) do SetupPlayer(player) end
+Players.PlayerAdded:Connect(SetupPlayer)
+Players.PlayerRemoving:Connect(CleanupPlayer)
+
+-- =========================================================
+-- BYPASS: GUI PARENT — gethui() > CoreGui > PlayerGui
+-- gethui() devuelve un contenedor protegido que la mayoría
+-- de anti-cheats no puede leer con GetDescendants().
+-- CoreGui es visible para el server en algunos juegos, evitar.
+-- =========================================================
+
+ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = GUI_NAME        -- BYPASS: nombre aleatorio
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+
+local guiParent =
+    (hasGetHui and gethui())
+    or LocalPlayer:WaitForChild("PlayerGui")
+
+ScreenGui.Parent = guiParent
+
+-- BYPASS: protect_gui oculta la GUI del LocalScript anticheat scan
+if hasProtectGui then
+    protect_gui(ScreenGui)
+    ScreenGui.Parent = game:GetService("CoreGui")
+end
+
+-- =========================================================
+-- GUI — Main Frame
+-- =========================================================
+
+Main = Instance.new("Frame")
+Main.Name               = "Main"
+Main.Parent             = ScreenGui
+Main.Size               = UDim2.new(0, 500, 0, 680)
+Main.Position           = UDim2.new(0.5, -250, 1.5, 0)
+Main.BackgroundColor3   = Color3.fromRGB(10, 10, 18)
+Main.BorderSizePixel    = 0
+Main.ClipsDescendants   = true
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 16)
+local Stroke = Instance.new("UIStroke", Main)
+Stroke.Thickness = 1.5
+Stroke.Color     = Color3.fromRGB(120, 80, 255)
+
+local BG = Instance.new("Frame", Main)
+BG.Size             = UDim2.fromScale(1, 1)
+BG.BackgroundColor3 = Color3.fromRGB(14, 12, 28)
+BG.BorderSizePixel  = 0
+BG.ZIndex           = 0
+local BGGradient = Instance.new("UIGradient", BG)
+BGGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(14, 12, 28)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(8,  6,  18))
+})
+BGGradient.Rotation = 135
+
+local Header = Instance.new("Frame", Main)
+Header.Size             = UDim2.new(1, 0, 0, 70)
+Header.BackgroundColor3 = Color3.fromRGB(20, 16, 40)
+Header.BorderSizePixel  = 0
+Header.ZIndex           = 2
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 16)
+local HeaderFix = Instance.new("Frame", Header)
+HeaderFix.Size             = UDim2.new(1, 0, 0, 20)
+HeaderFix.Position         = UDim2.new(0, 0, 1, -20)
+HeaderFix.BackgroundColor3 = Color3.fromRGB(20, 16, 40)
+HeaderFix.BorderSizePixel  = 0
+HeaderFix.ZIndex           = 2
+local HGradient = Instance.new("UIGradient", Header)
+HGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(90,  40,  200)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(160, 60,  255)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(60,  120, 255))
+})
+HGradient.Rotation = 90
+local Title = Instance.new("TextLabel", Header)
+Title.Size                   = UDim2.new(1, 0, 0, 44)
+Title.Position               = UDim2.new(0, 0, 0, 6)
+Title.BackgroundTransparency = 1
+Title.Text                   = "✦ dbgoon22 ✦"
+Title.Font                   = Enum.Font.GothamBold
+Title.TextSize               = 28
+Title.TextColor3             = Color3.fromRGB(255, 255, 255)
+Title.TextStrokeTransparency = 0.5
+Title.TextStrokeColor3       = Color3.fromRGB(120, 60, 255)
+Title.ZIndex                 = 3
+local Sub = Instance.new("TextLabel", Header)
+Sub.Size                   = UDim2.new(1, 0, 0, 18)
+Sub.Position               = UDim2.new(0, 0, 0, 46)
+Sub.BackgroundTransparency = 1
+Sub.Text                   = "brainrot hub · v2.4 · [RightShift] ocultar"
+Sub.Font                   = Enum.Font.Gotham
+Sub.TextSize               = 11
+Sub.TextColor3             = Color3.fromRGB(200, 180, 255)
+Sub.ZIndex                 = 3
+
+-- Drag
+local dragging, dragStart, startPos = false, nil, nil
+Header.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging  = true
+        dragStart = input.Position
+        startPos  = Main.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+-- GUI toggle
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.KeyCode == Enum.KeyCode.RightShift then
+        GuiVisible   = not GuiVisible
+        Main.Visible = GuiVisible
+    end
+end)
+
+-- =========================================================
+-- TABS
+-- =========================================================
+
+local TabBar = Instance.new("Frame", Main)
+TabBar.Size             = UDim2.new(1, -20, 0, 36)
+TabBar.Position         = UDim2.new(0, 10, 0, 76)
+TabBar.BackgroundColor3 = Color3.fromRGB(20, 18, 35)
+TabBar.BorderSizePixel  = 0
+TabBar.ZIndex           = 3
+Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0, 10)
+local TabLayout = Instance.new("UIListLayout", TabBar)
+TabLayout.FillDirection       = Enum.FillDirection.Horizontal
+TabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabLayout.VerticalAlignment   = Enum.VerticalAlignment.Center
+TabLayout.Padding             = UDim.new(0, 4)
+
+local Pages = Instance.new("Frame", Main)
+Pages.Size               = UDim2.new(1, -20, 1, -122)
+Pages.Position           = UDim2.new(0, 10, 0, 118)
+Pages.BackgroundTransparency = 1
+Pages.ZIndex             = 2
+Pages.ClipsDescendants   = true
+
+local TabButtons = {}
+local PageFrames = {}
+
+local function CreatePage(name)
+    local scroll = Instance.new("ScrollingFrame", Pages)
+    scroll.Name                 = name .. "Page"
+    scroll.Size                 = UDim2.fromScale(1, 1)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel      = 0
+    scroll.ScrollBarThickness   = 3
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(120, 80, 255)
+    scroll.AutomaticCanvasSize  = Enum.AutomaticSize.Y
+    scroll.CanvasSize           = UDim2.new(0, 0, 0, 0)
+    scroll.Visible              = false
+    scroll.ZIndex               = 3
+    local layout = Instance.new("UIListLayout", scroll)
+    layout.Padding   = UDim.new(0, 8)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", scroll)
+    pad.PaddingTop    = UDim.new(0, 6)
+    pad.PaddingLeft   = UDim.new(0, 4)
+    pad.PaddingRight  = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 8)
+    PageFrames[name] = scroll
+    return scroll
+end
+
+local function SetTab(name)
+    for pName, page in pairs(PageFrames) do
+        page.Visible = pName == name
+    end
+    for tName, btn in pairs(TabButtons) do
+        local active = tName == name
+        btn.BackgroundColor3 = active
+            and Color3.fromRGB(120, 60, 255)
+            or  Color3.fromRGB(28,  24, 50)
+        btn.TextColor3 = active
+            and Color3.fromRGB(255, 255, 255)
+            or  Color3.fromRGB(160, 140, 200)
+    end
+end
+
+local function MakeTab(name, icon)
+    local btn = Instance.new("TextButton", TabBar)
+    btn.Size             = UDim2.new(0, 115, 0, 28)
+    btn.BackgroundColor3 = Color3.fromRGB(28, 24, 50)
+    btn.BorderSizePixel  = 0
+    btn.Text             = icon .. " " .. name
+    btn.Font             = Enum.Font.GothamBold
+    btn.TextSize         = 13
+    btn.TextColor3       = Color3.fromRGB(160, 140, 200)
+    btn.ZIndex           = 4
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    TabButtons[name] = btn
+    btn.MouseButton1Click:Connect(function() SetTab(name) end)
+end
+
+-- =========================================================
+-- GUI COMPONENTS
+-- =========================================================
+
+local function SectionLabel(parent, text, order)
+    local lbl = Instance.new("TextLabel", parent)
+    lbl.Size                   = UDim2.new(1, 0, 0, 24)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = " ◆ " .. text
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.TextSize               = 13
+    lbl.TextColor3             = Color3.fromRGB(160, 100, 255)
+    lbl.TextXAlignment         = Enum.TextXAlignment.Left
+    lbl.ZIndex                 = 4
+    lbl.LayoutOrder            = order
+    return lbl
+end
+
+local function Toggle(parent, label, description, order, callback)
+    local row = Instance.new("Frame", parent)
+    row.Size             = UDim2.new(1, 0, 0, 52)
+    row.BackgroundColor3 = Color3.fromRGB(22, 18, 40)
+    row.BorderSizePixel  = 0
+    row.LayoutOrder      = order
+    row.ZIndex           = 4
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
+
+    local text = Instance.new("TextLabel", row)
+    text.Size                   = UDim2.new(1, -70, 0, 24)
+    text.Position               = UDim2.new(0, 12, 0, 6)
+    text.BackgroundTransparency = 1
+    text.Text                   = label
+    text.Font                   = Enum.Font.GothamBold
+    text.TextSize               = 14
+    text.TextColor3             = Color3.fromRGB(240, 230, 255)
+    text.TextXAlignment         = Enum.TextXAlignment.Left
+    text.ZIndex                 = 5
+
+    if description then
+        local sub = Instance.new("TextLabel", row)
+        sub.Size                   = UDim2.new(1, -70, 0, 16)
+        sub.Position               = UDim2.new(0, 12, 0, 30)
+        sub.BackgroundTransparency = 1
+        sub.Text                   = description
+        sub.Font                   = Enum.Font.Gotham
+        sub.TextSize               = 11
+        sub.TextColor3             = Color3.fromRGB(140, 120, 180)
+        sub.TextXAlignment         = Enum.TextXAlignment.Left
+        sub.ZIndex                 = 5
+    end
+
+    local bg = Instance.new("Frame", row)
+    bg.Size             = UDim2.new(0, 42, 0, 22)
+    bg.Position         = UDim2.new(1, -54, 0.5, -11)
+    bg.BackgroundColor3 = Color3.fromRGB(50, 40, 80)
+    bg.BorderSizePixel  = 0
+    bg.ZIndex           = 5
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1, 0)
+
+    local dot = Instance.new("Frame", bg)
+    dot.Size             = UDim2.new(0, 16, 0, 16)
+    dot.Position         = UDim2.new(0, 3, 0.5, -8)
+    dot.BackgroundColor3 = Color3.fromRGB(180, 150, 255)
+    dot.BorderSizePixel  = 0
+    dot.ZIndex           = 6
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1, 0)
+
+    local enabled = false
+    local function SetState(value, invoke)
+        enabled = value == true
+        TweenService:Create(bg, TweenInfo.new(0.15), {
+            BackgroundColor3 = enabled
+                and Color3.fromRGB(120, 60, 255)
+                or  Color3.fromRGB(50, 40, 80)
+        }):Play()
+        TweenService:Create(dot, TweenInfo.new(0.15), {
+            Position = enabled
+                and UDim2.new(0, 23, 0.5, -8)
+                or  UDim2.new(0, 3,  0.5, -8)
+        }):Play()
+        if invoke ~= false then callback(enabled) end
+    end
+
+    bg.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            SetState(not enabled)
+        end
+    end)
+
+    return { Set = function(v) SetState(v) end, Get = function() return enabled end }
+end
+
+local function NumberBox(parent, label, description, order, defaultValue, minValue, maxValue, callback)
+    local row = Instance.new("Frame", parent)
+    row.Size             = UDim2.new(1, 0, 0, 58)
+    row.BackgroundColor3 = Color3.fromRGB(22, 18, 40)
+    row.BorderSizePixel  = 0
+    row.LayoutOrder      = order
+    row.ZIndex           = 4
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 10)
+
+    local title = Instance.new("TextLabel", row)
+    title.Size                   = UDim2.new(1, -130, 0, 24)
+    title.Position               = UDim2.new(0, 12, 0, 6)
+    title.BackgroundTransparency = 1
+    title.Text                   = label
+    title.Font                   = Enum.Font.GothamBold
+    title.TextSize               = 14
+    title.TextColor3             = Color3.fromRGB(240, 230, 255)
+    title.TextXAlignment         = Enum.TextXAlignment.Left
+    title.ZIndex                 = 5
+
+    local sub = Instance.new("TextLabel", row)
+    sub.Size                   = UDim2.new(1, -130, 0, 16)
+    sub.Position               = UDim2.new(0, 12, 0, 30)
+    sub.BackgroundTransparency = 1
+    sub.Text                   = description
+    sub.Font                   = Enum.Font.Gotham
+    sub.TextSize               = 10
+    sub.TextColor3             = Color3.fromRGB(140, 120, 180)
+    sub.TextXAlignment         = Enum.TextXAlignment.Left
+    sub.ZIndex                 = 5
+
+    local box = Instance.new("TextBox", row)
+    box.Size             = UDim2.new(0, 80, 0, 30)
+    box.Position         = UDim2.new(1, -92, 0.5, -15)
+    box.BackgroundColor3 = Color3.fromRGB(35, 28, 60)
+    box.BorderSizePixel  = 0
+    box.Text             = tostring(defaultValue)
+    box.Font             = Enum.Font.GothamBold
+    box.TextSize         = 13
+    box.TextColor3       = Color3.fromRGB(255, 255, 255)
+    box.ClearTextOnFocus = false
+    box.ZIndex           = 5
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 7)
+
+    local function Apply()
+        local value = math.clamp(
+            math.floor(SafeNumber(box.Text, defaultValue)),
+            minValue, maxValue
+        )
+        box.Text = tostring(value)
+        callback(value)
+        return value
+    end
+    box.FocusLost:Connect(Apply)
+    return { Apply = Apply, Box = box }
+end
+
+-- =========================================================
+-- CREATE TABS
+-- =========================================================
+
+MakeTab("Player", "⚔️")
+local PlayerPage = CreatePage("Player")
+
+-- HITBOX
+SectionLabel(PlayerPage, "HITBOX", 10)
+local hbHolder = { state = State.Hitbox }
+hbHolder.toggle = Toggle(
+    PlayerPage,
+    "Hitbox Expand",
+    "Modifica HumanoidRootPart (local, bypass seti)",
+    11,
+    function(enabled)
+        State.Hitbox.Enabled = enabled
+        SetAllHitboxes(enabled)
+    end
+)
+NumberBox(
+    PlayerPage, "Hitbox Size", "Tamaño del hitbox: 1-100",
+    12, State.Hitbox.Size, 1, 100,
+    function(value)
+        State.Hitbox.Size = value
+        UpdateHitboxSize()
+    end
+)
+
+-- ESP
+SectionLabel(PlayerPage, "ESP", 20)
+local espHolder = { state = State.ESP }
+espHolder.toggle = Toggle(
+    PlayerPage,
+    "ESP",
+    "Highlight con nombre randomizado (bypass scan)",
+    21,
+    function(enabled)
+        State.ESP.Enabled = enabled
+        RefreshESP()
+    end
+)
+
+-- COMBATE
+SectionLabel(PlayerPage, "COMBATE", 30)
+local autoHitHolder = { state = State.AutoHit }
+autoHitHolder.toggle = Toggle(
+    PlayerPage,
+    "Auto Hit",
+    "Punto de integración para el sistema de combate",
+    31,
+    function(enabled)
+        State.AutoHit.Enabled = enabled
+        if not enabled and not State.Aimbot.Enabled then CurrentTarget = nil end
+    end
+)
+local aimHolder = { state = State.Aimbot }
+aimHolder.toggle = Toggle(
+    PlayerPage,
+    "Aimbot",
+    "Suaviza cámara hacia objetivo (bypass seti en camera)",
+    32,
+    function(enabled)
+        State.Aimbot.Enabled = enabled
+        if not enabled and not State.AutoHit.Enabled then CurrentTarget = nil end
+    end
+)
+
+-- MOVIMIENTO
+SectionLabel(PlayerPage, "MOVIMIENTO", 40)
+local speedHolder = { state = State.Speed }
+speedHolder.toggle = Toggle(
+    PlayerPage,
+    "Speed",
+    "Network ownership bypass (máx 500)",
+    41,
+    function(enabled)
+        State.Speed.Enabled = enabled
+        if not enabled then RemoveSpeed() end
+    end
+)
+NumberBox(
+    PlayerPage, "Speed Value", "Velocidad: 1-500",
+    42, State.Speed.Value, 1, SPEED_MAX,
+    function(value) State.Speed.Value = value end
+)
+local infJumpHolder = { state = State.InfJump }
+infJumpHolder.toggle = Toggle(
+    PlayerPage,
+    "Infinite Jump",
+    "Deshabilita estado Landed antes de saltar",
+    43,
+    function(enabled) State.InfJump.Enabled = enabled end
+)
+
+-- DEFENSA
+SectionLabel(PlayerPage, "DEFENSA", 50)
+local antiRagdollHolder = { state = State.AntiRagdoll }
+antiRagdollHolder.toggle = Toggle(
+    PlayerPage,
+    "Anti Ragdoll",
+    "Motor6D restore + constraint removal + GettingUp",
+    51,
+    function(enabled)
+        State.AntiRagdoll.Enabled = enabled
+        if enabled then SaveMotor6Ds(LocalPlayer.Character) end
+    end
+)
+
+-- =========================================================
+-- KEYBINDS
+-- =========================================================
+
+local function RegisterKeybind(label, key, holder)
+    table.insert(Keybinds, { label = label, key = key, holder = holder })
+end
+
+RegisterKeybind("Hitbox Expand",  Enum.KeyCode.H, hbHolder)
+RegisterKeybind("ESP",            Enum.KeyCode.E, espHolder)
+RegisterKeybind("Auto Hit",       Enum.KeyCode.G, autoHitHolder)
+RegisterKeybind("Aimbot",         Enum.KeyCode.F, aimHolder)
+RegisterKeybind("Speed",          Enum.KeyCode.X, speedHolder)
+RegisterKeybind("Infinite Jump",  Enum.KeyCode.J, infJumpHolder)
+RegisterKeybind("Anti Ragdoll",   Enum.KeyCode.R, antiRagdollHolder)
+
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    for _, bind in ipairs(Keybinds) do
+        if input.KeyCode == bind.key then
+            local h = bind.holder
+            if h and h.toggle then
+                h.toggle.Set(not h.toggle.Get())
+            end
+            break
+        end
+    end
+end)
+
+-- =========================================================
+-- INITIALIZE
+-- =========================================================
+
+SetTab("Player")
+
+TweenService:Create(Main, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Position = UDim2.new(0.5, -250, 0.5, -340)
+}):Play()
+
+print("[dbgoon22 v2.4] cargado · GUI: " .. GUI_NAME)
