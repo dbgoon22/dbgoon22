@@ -1,0 +1,531 @@
+--// AutoCodeClaim_SAB.lua
+--// Steal a Brainrot - AutoCode
+--// Y = abrir/cerrar GUI
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TextChatService = game:GetService("TextChatService")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+
+--==================================================
+-- CONFIG
+--==================================================
+
+local ADMIN_NAMES = {
+    ["SpyderSammy"] = true,
+    ["Sammy"] = true,
+    ["steaksammy"] = true,
+    ["Caylus"] = true,
+}
+
+local WORDS_NEEDED = 3
+local WORD_TIMEOUT = 12
+
+local autoCode = true
+local pending = {}
+local lastCode = ""
+
+--==================================================
+-- GUI
+--==================================================
+
+local oldGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("AutoCodeGUI")
+if oldGui then
+    oldGui:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "AutoCodeGUI"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = LocalPlayer.PlayerGui
+
+local Main = Instance.new("Frame")
+Main.Name = "Main"
+Main.Size = UDim2.new(0, 300, 0, 180)
+Main.Position = UDim2.new(0.5, -150, 0.5, -90)
+Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Main.BorderSizePixel = 0
+Main.Visible = true
+Main.Parent = ScreenGui
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 10)
+Corner.Parent = Main
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "Auto Code"
+Title.TextColor3 = Color3.new(1, 1, 1)
+Title.TextSize = 24
+Title.Font = Enum.Font.GothamBold
+Title.Parent = Main
+
+local Status = Instance.new("TextLabel")
+Status.Size = UDim2.new(1, -20, 0, 30)
+Status.Position = UDim2.new(0, 10, 0, 45)
+Status.BackgroundTransparency = 1
+Status.Text = "Estado: ON"
+Status.TextColor3 = Color3.fromRGB(80, 255, 80)
+Status.TextSize = 18
+Status.Font = Enum.Font.GothamBold
+Status.Parent = Main
+
+local Toggle = Instance.new("TextButton")
+Toggle.Size = UDim2.new(0, 220, 0, 40)
+Toggle.Position = UDim2.new(0.5, -110, 0, 80)
+Toggle.BackgroundColor3 = Color3.fromRGB(60, 170, 70)
+Toggle.Text = "AutoCode: ON"
+Toggle.TextColor3 = Color3.new(1, 1, 1)
+Toggle.TextSize = 18
+Toggle.Font = Enum.Font.GothamBold
+Toggle.Parent = Main
+
+local ToggleCorner = Instance.new("UICorner")
+ToggleCorner.CornerRadius = UDim.new(0, 8)
+ToggleCorner.Parent = Toggle
+
+local LastCode = Instance.new("TextLabel")
+LastCode.Size = UDim2.new(1, -20, 0, 40)
+LastCode.Position = UDim2.new(0, 10, 0, 130)
+LastCode.BackgroundTransparency = 1
+LastCode.Text = "Último código: ---"
+LastCode.TextColor3 = Color3.fromRGB(220, 220, 220)
+LastCode.TextSize = 15
+LastCode.Font = Enum.Font.Gotham
+LastCode.Parent = Main
+
+Toggle.MouseButton1Click:Connect(function()
+    autoCode = not autoCode
+
+    if autoCode then
+        Toggle.Text = "AutoCode: ON"
+        Toggle.BackgroundColor3 = Color3.fromRGB(60, 170, 70)
+        Status.Text = "Estado: ON"
+        Status.TextColor3 = Color3.fromRGB(80, 255, 80)
+    else
+        Toggle.Text = "AutoCode: OFF"
+        Toggle.BackgroundColor3 = Color3.fromRGB(170, 60, 60)
+        Status.Text = "Estado: OFF"
+        Status.TextColor3 = Color3.fromRGB(255, 80, 80)
+        pending = {}
+    end
+end)
+
+--==================================================
+-- TECLA Y
+--==================================================
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then
+        return
+    end
+
+    if input.KeyCode == Enum.KeyCode.Y then
+        Main.Visible = not Main.Visible
+    end
+end)
+
+--==================================================
+-- UTILIDADES
+--==================================================
+
+local function notify(text)
+    LastCode.Text = text
+    print("[AutoCode] " .. text)
+end
+
+local function isAdmin(player)
+    if not player then
+        return false
+    end
+
+    local name = player.Name or ""
+    local displayName = player.DisplayName or ""
+
+    if ADMIN_NAMES[name] then
+        return true
+    end
+
+    if ADMIN_NAMES[displayName] then
+        return true
+    end
+
+    local lowerName = name:lower()
+    local lowerDisplay = displayName:lower()
+
+    for adminName in pairs(ADMIN_NAMES) do
+        local target = adminName:lower()
+
+        if lowerName == target or lowerDisplay == target then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Conserva la palabra que dijo Sammy,
+-- quitando únicamente puntuación.
+local function cleanWord(word)
+    if not word then
+        return nil
+    end
+
+    word = tostring(word)
+
+    word = word:gsub("[%.%,%!%?%:%;\"'%(%)[%]%{%}]+", "")
+
+    if word == "" then
+        return nil
+    end
+
+    if not word:match("%a") then
+        return nil
+    end
+
+    return word
+end
+
+--==================================================
+-- BUSCAR CAJA "CODE HERE"
+--==================================================
+
+local function findCodeBox()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+
+    if not playerGui then
+        return nil
+    end
+
+    for _, obj in ipairs(playerGui:GetDescendants()) do
+        if obj:IsA("TextBox") then
+
+            local placeholder = (obj.PlaceholderText or ""):lower()
+            local name = obj.Name:lower()
+
+            if placeholder:find("code")
+                or placeholder:find("here")
+                or name:find("code")
+                or name:find("redeem") then
+
+                return obj
+            end
+        end
+    end
+
+    return nil
+end
+
+--==================================================
+-- BUSCAR BOTÓN SUBMIT
+--==================================================
+
+local function findSubmitButton(codeBox)
+    if not codeBox then
+        return nil
+    end
+
+    local root = codeBox.Parent
+
+    -- Subimos algunos niveles para encontrar
+    -- el botón que pertenece a la misma ventana.
+    for _ = 1, 4 do
+        if not root then
+            break
+        end
+
+        for _, obj in ipairs(root:GetDescendants()) do
+
+            if obj:IsA("TextButton") then
+                local text = (obj.Text or ""):lower()
+                local name = obj.Name:lower()
+
+                if text:find("submit")
+                    or name:find("submit") then
+
+                    return obj
+                end
+            end
+
+            if obj:IsA("ImageButton") then
+                local name = obj.Name:lower()
+
+                if name:find("submit") then
+                    return obj
+                end
+            end
+        end
+
+        root = root.Parent
+    end
+
+    return nil
+end
+
+--==================================================
+-- CLICK DEL SUBMIT
+--==================================================
+
+local function clickButton(button)
+    if not button then
+        return false
+    end
+
+    -- Algunos executors permiten firesignal/getconnections.
+    if getconnections then
+        pcall(function()
+            local connections = getconnections(button.MouseButton1Click)
+
+            for _, connection in ipairs(connections) do
+                if connection.Function then
+                    connection:Fire()
+                end
+            end
+        end)
+
+        return true
+    end
+
+    -- Intento adicional con Activate.
+    pcall(function()
+        button:Activate()
+    end)
+
+    return true
+end
+
+--==================================================
+-- RECLAMAR CÓDIGO
+--==================================================
+
+local claiming = false
+
+local function claimCode(code)
+
+    if not autoCode then
+        return
+    end
+
+    if claiming then
+        return
+    end
+
+    if not code or code == "" then
+        return
+    end
+
+    claiming = true
+    lastCode = code
+
+    notify("Código: " .. code)
+
+    task.wait(0.05)
+
+    local codeBox = findCodeBox()
+
+    if not codeBox then
+        notify("No encontré Code Here...")
+        claiming = false
+        return
+    end
+
+    -- Escribe EXACTAMENTE las 3 palabras juntas.
+    codeBox.Text = code
+
+    task.wait(0.1)
+
+    local submit = findSubmitButton(codeBox)
+
+    if submit then
+        clickButton(submit)
+        notify("Reclamado: " .. code)
+    else
+        notify("Código escrito: " .. code)
+    end
+
+    claiming = false
+end
+
+--==================================================
+-- RECIBIR PALABRAS
+--==================================================
+
+local function addWord(word)
+
+    if not autoCode then
+        return
+    end
+
+    local now = tick()
+
+    -- Eliminar palabras antiguas.
+    local fresh = {}
+
+    for _, entry in ipairs(pending) do
+        if now - entry.time <= WORD_TIMEOUT then
+            table.insert(fresh, entry)
+        end
+    end
+
+    pending = fresh
+
+    -- Guardamos la palabra REAL que dijo Sammy.
+    table.insert(pending, {
+        word = word,
+        time = now
+    })
+
+    -- Tenemos las 3 palabras.
+    if #pending >= WORDS_NEEDED then
+
+        local parts = {}
+
+        for i = #pending - WORDS_NEEDED + 1, #pending do
+            table.insert(parts, pending[i].word)
+        end
+
+        -- SIN espacios.
+        local code = table.concat(parts, "")
+
+        -- Reset.
+        pending = {}
+
+        claimCode(code)
+    end
+end
+
+--==================================================
+-- PROCESAR MENSAJE DE SAMMY
+--==================================================
+
+local function onChat(player, message)
+
+    if not autoCode then
+        return
+    end
+
+    if not player then
+        return
+    end
+
+    if not isAdmin(player) then
+        return
+    end
+
+    if not message or message == "" then
+        return
+    end
+
+    print("[Sammy] " .. message)
+
+    -- Separamos el mensaje en palabras.
+    for token in tostring(message):gmatch("%S+") do
+
+        local word = cleanWord(token)
+
+        if word then
+            addWord(word)
+        end
+    end
+end
+
+--==================================================
+-- TEXT CHAT MODERNO
+--==================================================
+
+pcall(function()
+
+    TextChatService.MessageReceived:Connect(function(message)
+
+        if not message.TextSource then
+            return
+        end
+
+        local userId = message.TextSource.UserId
+        local player = Players:GetPlayerByUserId(userId)
+
+        if player then
+            onChat(player, message.Text)
+        end
+    end)
+
+end)
+
+--==================================================
+-- CHAT LEGACY
+--==================================================
+
+pcall(function()
+
+    local chatEvents =
+        ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+
+    if chatEvents then
+
+        local event =
+            chatEvents:FindFirstChild("OnMessageDoneFiltering")
+            or chatEvents:FindFirstChild("OnNewMessage")
+
+        if event then
+
+            event.OnClientEvent:Connect(function(data)
+
+                if not data then
+                    return
+                end
+
+                local speakerName =
+                    data.FromSpeaker
+                    or data.Speaker
+                    or ""
+
+                local message =
+                    data.Message
+                    or data.MessageText
+                    or ""
+
+                local player =
+                    Players:FindFirstChild(speakerName)
+
+                if player then
+                    onChat(player, message)
+                end
+            end)
+
+        end
+    end
+
+end)
+
+--==================================================
+-- CHAT DE JUGADORES
+--==================================================
+
+local function connectPlayer(player)
+
+    player.Chatted:Connect(function(message)
+        onChat(player, message)
+    end)
+
+end
+
+for _, player in ipairs(Players:GetPlayers()) do
+    connectPlayer(player)
+end
+
+Players.PlayerAdded:Connect(connectPlayer)
+
+--==================================================
+-- ARRANQUE
+--==================================================
+
+notify("AutoCode listo - ON")
+print("===================================")
+print(" AutoCode SAB")
+print(" Y = Mostrar/Ocultar GUI")
+print(" AutoCode = ON")
+print(" Esperando 3 palabras de Sammy...")
+print("===================================")
