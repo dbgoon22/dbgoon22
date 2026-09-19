@@ -1,0 +1,1232 @@
+bash
+
+cat > /mnt/user-data/outputs/dbgoon22_hub_v3.0.lua << 'ENDOFFILE'
+--[[
+    dbgoon22 Hub — v3.0
+    Steal a Brainrot edition
+    
+    FEATURES:
+    - Auto Steal (teleport + touch brainrots en bases enemigas)
+    - Auto Hit (fly + batazo automático con aimbot)
+    - Speed (BodyVelocity bypass — mejor que WalkSpeed)
+    - Infinite Jump (SetStateEnabled bypass)
+    - ESP
+    - Hitbox Expand
+    - Anti Ragdoll (Motor6D restore)
+    - Keybinds tab
+    - GUI rediseñada
+]]
+
+-- =========================================================
+-- BYPASS: ENV DETECTION (rawget, nunca lanza error)
+-- =========================================================
+
+local function hasGlobal(name)
+    return typeof(rawget(_G, name)) == "function"
+end
+
+local hasGetHui     = hasGlobal("gethui")
+local hasProtectGui = hasGlobal("protect_gui")
+local hasGetRMeta   = hasGlobal("getrawmetatable")
+local hasHookMeta   = hasGlobal("hookmetamethod")
+local hasSeti       = hasGlobal("seti")
+local hasCloneRef   = hasGlobal("cloneref")
+
+local function SafeClone(svc)
+    if hasCloneRef then
+        local ok, r = pcall(cloneref, svc)
+        if ok and r then return r end
+    end
+    return svc
+end
+
+-- =========================================================
+-- SERVICES
+-- =========================================================
+
+local Players          = SafeClone(game:GetService("Players"))
+local RunService       = SafeClone(game:GetService("RunService"))
+local UserInputService = SafeClone(game:GetService("UserInputService"))
+local TweenService     = SafeClone(game:GetService("TweenService"))
+local Workspace        = SafeClone(game:GetService("Workspace"))
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =========================================================
+-- RANDOM GUI NAME
+-- =========================================================
+
+local function RandStr(n)
+    local c = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local s = ""
+    for i = 1, n do s = s .. c:sub(math.random(1,#c),math.random(1,#c)) end
+    return s
+end
+local GUI_NAME = RandStr(10)
+
+-- =========================================================
+-- HOOKMETAMETHOD (opcional, pcall)
+-- =========================================================
+
+if hasHookMeta and hasGetRMeta then
+    pcall(function()
+        local mt = getrawmetatable(game)
+        local oldNI = mt.__newindex
+        hookmetamethod(game, "__newindex", function(self, k, v)
+            if self == LocalPlayer and (k == "Parent" or k == "Name") then return end
+            return oldNI(self, k, v)
+        end)
+    end)
+end
+
+-- =========================================================
+-- STATE
+-- =========================================================
+
+local State = {
+    AutoSteal   = { Enabled = false, Cooldown = 0.3 },
+    AutoHit     = { Enabled = false },
+    Aimbot      = { Enabled = false },
+    Speed       = { Enabled = false, Value = 50 },
+    InfJump     = { Enabled = false },
+    ESP         = { Enabled = false, Color = Color3.fromRGB(255, 80, 80) },
+    Hitbox      = { Enabled = false, Size = 15 },
+    AntiRagdoll = { Enabled = false },
+    Fly         = { Enabled = false, Speed = 60 },
+}
+
+-- =========================================================
+-- CACHE
+-- =========================================================
+
+local OriginalSizes      = {}
+local OriginalWalkSpeeds = {}
+local SavedMotor6Ds      = {}
+local ESPObjects         = {}
+local PlayerConnections  = {}
+local Keybinds           = {}
+local GuiVisible         = true
+local CurrentTarget      = nil
+local TargetAccumulator  = 0
+local TARGET_UPDATE_RATE = 0.06
+
+-- BodyVelocity para speed bypass
+local SpeedBV  = nil
+local FlyBG    = nil
+local FlyBV    = nil
+
+local ScreenGui, Main
+
+-- =========================================================
+-- UTILITIES
+-- =========================================================
+
+local function GetChar(p)   return p and p.Character end
+local function GetRoot(p)
+    local c = GetChar(p)
+    return c and c:FindFirstChild("HumanoidRootPart")
+end
+local function GetHum(p)
+    local c = GetChar(p)
+    return c and c:FindFirstChildOfClass("Humanoid")
+end
+local function ValidChar(p)
+    if not p or not p.Parent then return false end
+    local h = GetHum(p); local r = GetRoot(p)
+    return h ~= nil and r ~= nil and h.Health > 0
+end
+local function SafeNum(v, fb)
+    local n = tonumber(v)
+    if not n or n ~= n or math.abs(n) == math.huge then return fb end
+    return n
+end
+
+-- =========================================================
+-- BYPASS: SPEED con BodyVelocity
+-- BodyVelocity es más difícil de detectar que WalkSpeed porque
+-- el servidor ve WalkSpeed normal — el movimiento viene de la
+-- física local del BodyVelocity que el cliente controla.
+-- =========================================================
+
+local function RemoveSpeedBV()
+    if SpeedBV then
+        pcall(function() SpeedBV:Destroy() end)
+        SpeedBV = nil
+    end
+    -- restaurar WalkSpeed original
+    local hum = GetHum(LocalPlayer)
+    if hum then
+        local orig = OriginalWalkSpeeds[hum]
+        pcall(function() hum.WalkSpeed = orig or 16 end)
+        OriginalWalkSpeeds[hum] = nil
+    end
+end
+
+local function ApplySpeedBV()
+    if not State.Speed.Enabled then return end
+    local root = GetRoot(LocalPlayer)
+    local hum  = GetHum(LocalPlayer)
+    if not root or not hum or hum.Health <= 0 then return end
+
+    -- guardar original
+    if OriginalWalkSpeeds[hum] == nil then
+        OriginalWalkSpeeds[hum] = hum.WalkSpeed
+    end
+
+    -- mantener WalkSpeed bajo para no levantar flags del servidor
+    pcall(function() hum.WalkSpeed = 16 end)
+
+    -- crear/actualizar BodyVelocity
+    local existing = root:FindFirstChild("__dbBV")
+    if not existing then
+        local bv = Instance.new("BodyVelocity")
+        bv.Name          = "__dbBV"
+        bv.MaxForce      = Vector3.new(1e5, 0, 1e5)
+        bv.Velocity      = Vector3.zero
+        bv.P             = 1e4
+        bv.Parent        = root
+        SpeedBV          = bv
+    else
+        SpeedBV = existing
+    end
+
+    -- dirección de movimiento basada en la cámara + input
+    local cam    = Workspace.CurrentCamera
+    local move   = Vector3.zero
+    local speed  = SafeNum(State.Speed.Value, 50)
+
+    -- leer keys manualmente (compatible con todos los ejecutores)
+    local UIS = UserInputService
+    local fwd = (UIS:IsKeyDown(Enum.KeyCode.W) or UIS:IsKeyDown(Enum.KeyCode.Up))  and 1 or 0
+    local bwd = (UIS:IsKeyDown(Enum.KeyCode.S) or UIS:IsKeyDown(Enum.KeyCode.Down)) and 1 or 0
+    local lft = (UIS:IsKeyDown(Enum.KeyCode.A) or UIS:IsKeyDown(Enum.KeyCode.Left)) and 1 or 0
+    local rgt = (UIS:IsKeyDown(Enum.KeyCode.D) or UIS:IsKeyDown(Enum.KeyCode.Right)) and 1 or 0
+
+    if fwd == 0 and bwd == 0 and lft == 0 and rgt == 0 then
+        -- sin input: BodyVelocity a 0 → permite parar limpio
+        if SpeedBV then
+            pcall(function() SpeedBV.Velocity = Vector3.zero end)
+        end
+        return
+    end
+
+    local camCF  = cam.CFrame
+    local flatFwd = Vector3.new(camCF.LookVector.X, 0, camCF.LookVector.Z).Unit
+    local flatRgt = Vector3.new(camCF.RightVector.X, 0, camCF.RightVector.Z).Unit
+
+    move = (flatFwd * (fwd - bwd) + flatRgt * (rgt - lft))
+    if move.Magnitude > 0 then
+        move = move.Unit * speed
+    end
+
+    pcall(function()
+        if SpeedBV and SpeedBV.Parent then
+            SpeedBV.Velocity = move
+        end
+    end)
+end
+
+-- =========================================================
+-- BYPASS: FLY con BodyGyro + BodyVelocity
+-- =========================================================
+
+local function RemoveFly()
+    if FlyBG then pcall(function() FlyBG:Destroy() end); FlyBG = nil end
+    if FlyBV then pcall(function() FlyBV:Destroy() end); FlyBV = nil end
+end
+
+local function SetupFly()
+    local root = GetRoot(LocalPlayer)
+    if not root then return end
+    RemoveFly()
+    local bg = Instance.new("BodyGyro")
+    bg.Name     = "__dbBG"
+    bg.MaxTorque = Vector3.new(1e5,1e5,1e5)
+    bg.P        = 1e4
+    bg.CFrame   = root.CFrame
+    bg.Parent   = root
+    FlyBG       = bg
+
+    local bv = Instance.new("BodyVelocity")
+    bv.Name     = "__dbFV"
+    bv.MaxForce = Vector3.new(1e5,1e5,1e5)
+    bv.Velocity = Vector3.zero
+    bv.P        = 1e4
+    bv.Parent   = root
+    FlyBV       = bv
+end
+
+local function ApplyFly()
+    if not State.Fly.Enabled then return end
+    local root = GetRoot(LocalPlayer)
+    if not root then return end
+
+    if not FlyBV or not FlyBV.Parent then SetupFly() end
+
+    local cam   = Workspace.CurrentCamera
+    local speed = SafeNum(State.Fly.Speed, 60)
+    local UIS   = UserInputService
+
+    local fwd = (UIS:IsKeyDown(Enum.KeyCode.W)  or UIS:IsKeyDown(Enum.KeyCode.Up))    and 1 or 0
+    local bwd = (UIS:IsKeyDown(Enum.KeyCode.S)  or UIS:IsKeyDown(Enum.KeyCode.Down))  and 1 or 0
+    local lft = (UIS:IsKeyDown(Enum.KeyCode.A)  or UIS:IsKeyDown(Enum.KeyCode.Left))  and 1 or 0
+    local rgt = (UIS:IsKeyDown(Enum.KeyCode.D)  or UIS:IsKeyDown(Enum.KeyCode.Right)) and 1 or 0
+    local up  = UIS:IsKeyDown(Enum.KeyCode.Space) and 1 or 0
+    local dn  = UIS:IsKeyDown(Enum.KeyCode.LeftControl) and 1 or 0
+
+    local dir = cam.CFrame.LookVector * (fwd - bwd)
+                + cam.CFrame.RightVector * (rgt - lft)
+                + Vector3.new(0,1,0) * (up - dn)
+
+    pcall(function()
+        FlyBV.Velocity = dir.Magnitude > 0 and dir.Unit * speed or Vector3.zero
+        FlyBG.CFrame   = cam.CFrame
+    end)
+end
+
+-- =========================================================
+-- AUTO STEAL — Steal a Brainrot
+-- El juego usa TouchInterest en los brainrots de la base.
+-- El mecanismo: teleportar encima del brainrot → firetouchinterest
+-- o simplemente mover el HRP encima y dejar que el touch lo procese.
+-- Buscamos objetos con el tag "Brainrot" o en el modelo "Base" de otros.
+-- =========================================================
+
+local stealCooldown = 0
+local hasFTI        = hasGlobal("firetouchinterest")
+
+local function GetEnemyBrainrots()
+    local found = {}
+    -- los brainrots están en Workspace bajo el character/base de cada player
+    -- o bajo un folder de bases. buscamos cualquier Model/Part con nombre
+    -- que contenga "Brainrot" o esté bajo una base que no sea nuestra.
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        -- filtro por nombre común en el juego
+        if obj:IsA("Model") or obj:IsA("BasePart") then
+            local name = obj.Name:lower()
+            if name:find("brainrot") or name:find("pet") then
+                -- verificar que no sea nuestro
+                local owner = nil
+                local p = obj.Parent
+                for i = 1, 6 do
+                    if p then
+                        for _, player in ipairs(Players:GetPlayers()) do
+                            if player ~= LocalPlayer and p.Name == player.Name then
+                                owner = player
+                                break
+                            end
+                        end
+                        if owner then break end
+                        p = p.Parent
+                    end
+                end
+                if owner then
+                    local pos = obj:IsA("Model")
+                        and (obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart)
+                        or obj
+                    if pos then
+                        table.insert(found, { part = pos, owner = owner, obj = obj })
+                    end
+                end
+            end
+        end
+    end
+    return found
+end
+
+local function TryAutoSteal(dt)
+    if not State.AutoSteal.Enabled then return end
+    stealCooldown = stealCooldown - dt
+    if stealCooldown > 0 then return end
+
+    local myRoot = GetRoot(LocalPlayer)
+    if not myRoot then return end
+
+    local targets = GetEnemyBrainrots()
+    if #targets == 0 then return end
+
+    -- ordenar por distancia
+    table.sort(targets, function(a, b)
+        local posA = a.part:IsA("BasePart") and a.part.Position or Vector3.zero
+        local posB = b.part:IsA("BasePart") and b.part.Position or Vector3.zero
+        return (posA - myRoot.Position).Magnitude < (posB - myRoot.Position).Magnitude
+    end)
+
+    local target = targets[1]
+    local tPart  = target.part
+    if not tPart or not tPart.Parent then return end
+
+    local tPos = tPart:IsA("BasePart") and tPart.Position or Vector3.zero
+
+    pcall(function()
+        -- teleportar encima del brainrot
+        myRoot.CFrame = CFrame.new(tPos + Vector3.new(0, 3, 0))
+        task.wait(0.05)
+
+        -- firetouchinterest si está disponible (más fiable)
+        if hasFTI then
+            local touchPart = tPart:IsA("BasePart") and tPart
+                or target.obj:IsA("BasePart") and target.obj
+                or target.obj:FindFirstChildWhichIsA("BasePart")
+            if touchPart then
+                firetouchinterest(myRoot, touchPart, 0)
+                task.wait(0.02)
+                firetouchinterest(myRoot, touchPart, 1)
+            end
+        end
+    end)
+
+    stealCooldown = SafeNum(State.AutoSteal.Cooldown, 0.3)
+end
+
+-- =========================================================
+-- HITBOX
+-- =========================================================
+
+local function GetHitboxSize()
+    return math.clamp(SafeNum(State.Hitbox.Size, 15), 1, 100)
+end
+
+local function SaveOrigSize(player)
+    if player == LocalPlayer then return end
+    local r = GetRoot(player)
+    if r and OriginalSizes[player] == nil then OriginalSizes[player] = r.Size end
+end
+
+local function ApplyHitbox(player)
+    if player == LocalPlayer then return end
+    local r = GetRoot(player)
+    if not r then return end
+    SaveOrigSize(player)
+    pcall(function()
+        local s = GetHitboxSize()
+        if hasSeti then seti(r, "Size", Vector3.new(s,s,s))
+        else             r.Size = Vector3.new(s,s,s) end
+        r.CanCollide = false
+    end)
+end
+
+local function RestoreHitbox(player)
+    if player == LocalPlayer then return end
+    local r = GetRoot(player); local o = OriginalSizes[player]
+    if r and o then
+        pcall(function()
+            if hasSeti then seti(r, "Size", o) else r.Size = o end
+        end)
+    end
+    OriginalSizes[player] = nil
+end
+
+local function SetAllHitboxes(en)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if en then ApplyHitbox(p) else RestoreHitbox(p) end
+        end
+    end
+end
+
+local function UpdateHitboxSize()
+    if not State.Hitbox.Enabled then return end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then ApplyHitbox(p) end
+    end
+end
+
+-- =========================================================
+-- ESP
+-- =========================================================
+
+local function RemoveESP(player)
+    local o = ESPObjects[player]
+    if o then pcall(function() o:Destroy() end); ESPObjects[player] = nil end
+end
+
+local function AddESP(player)
+    if player == LocalPlayer then return end
+    if not State.ESP.Enabled then RemoveESP(player) return end
+    local char = player.Character
+    if not char then return end
+    local ex = ESPObjects[player]
+    if ex and ex.Parent == char then
+        ex.FillColor = State.ESP.Color; ex.OutlineColor = State.ESP.Color; return
+    end
+    RemoveESP(player)
+    local hl = Instance.new("Highlight")
+    hl.Name                = GUI_NAME .. "_E"
+    hl.Adornee             = char
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillColor           = State.ESP.Color
+    hl.OutlineColor        = State.ESP.Color
+    hl.FillTransparency    = 0.6
+    hl.OutlineTransparency = 0
+    hl.Parent              = char
+    ESPObjects[player]     = hl
+end
+
+local function RefreshESP()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if State.ESP.Enabled then AddESP(p) else RemoveESP(p) end
+        end
+    end
+end
+
+-- =========================================================
+-- ANTI-RAGDOLL (triple capa)
+-- =========================================================
+
+local function SaveMotors(char)
+    if not char or SavedMotor6Ds[char] then return end
+    local m = {}
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("Motor6D") then
+            m[v] = { part0=v.Part0, part1=v.Part1, c0=v.C0, c1=v.C1 }
+        end
+    end
+    SavedMotor6Ds[char] = m
+end
+
+local function RestoreMotors(char)
+    if not char then return end
+    local m = SavedMotor6Ds[char]; if not m then return end
+    for motor, d in pairs(m) do
+        pcall(function()
+            if motor and motor.Parent then
+                motor.Enabled = true
+                motor.Part0 = d.part0; motor.Part1 = d.part1
+                motor.C0 = d.c0;      motor.C1 = d.c1
+            end
+        end)
+    end
+end
+
+local function KillConstraints(char)
+    if not char then return end
+    for _, v in ipairs(char:GetDescendants()) do
+        if v:IsA("BallSocketConstraint") or v:IsA("HingeConstraint") then
+            pcall(function() v:Destroy() end)
+        end
+    end
+end
+
+local function ApplyAntiRagdoll()
+    if not State.AntiRagdoll.Enabled then return end
+    local char = LocalPlayer.Character
+    local hum  = GetHum(LocalPlayer)
+    if not hum or not char then return end
+    SaveMotors(char)
+    local st = hum:GetState()
+    if st == Enum.HumanoidStateType.Ragdoll or st == Enum.HumanoidStateType.FallingDown then
+        pcall(function()
+            RestoreMotors(char)
+            KillConstraints(char)
+            hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+        end)
+    end
+end
+
+-- =========================================================
+-- TARGET (closest enemy)
+-- =========================================================
+
+local function GetClosest()
+    local myRoot = GetRoot(LocalPlayer)
+    if not myRoot then return nil end
+    local best, bestD = nil, math.huge
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and ValidChar(p) then
+            local r = GetRoot(p)
+            if r then
+                local d = (r.Position - myRoot.Position).Magnitude
+                if d < bestD then bestD = d; best = p end
+            end
+        end
+    end
+    return best
+end
+
+local function UpdateTarget()
+    if State.AutoHit.Enabled or State.Aimbot.Enabled then
+        CurrentTarget = GetClosest()
+    else
+        CurrentTarget = nil
+    end
+end
+
+-- =========================================================
+-- AIMBOT
+-- =========================================================
+
+local function UpdateAimbot(target, dt)
+    if not State.Aimbot.Enabled or not target or not ValidChar(target) then return end
+    local r  = GetRoot(target)
+    local cam = Workspace.CurrentCamera
+    if not r or not cam then return end
+    local tp  = r.Position + Vector3.new(0,2,0)
+    local al  = 1 - math.pow(0.01, math.clamp(dt * 14, 0, 1))
+    pcall(function()
+        local nCF = cam.CFrame:Lerp(CFrame.lookAt(cam.CFrame.Position, tp), al)
+        if hasSeti then seti(cam, "CFrame", nCF) else cam.CFrame = nCF end
+    end)
+end
+
+-- =========================================================
+-- AUTO HIT — vuela hacia el jugador y "ataca" (touch)
+-- En Steal a Brainrot el daño a jugadores es por hitbox touch
+-- o por herramienta equipada. Simulamos ambos.
+-- =========================================================
+
+local autoHitCooldown = 0
+
+local function TryAutoHit(target, dt)
+    if not State.AutoHit.Enabled or not target or not ValidChar(target) then return end
+    autoHitCooldown = autoHitCooldown - dt
+    if autoHitCooldown > 0 then return end
+
+    local myRoot  = GetRoot(LocalPlayer)
+    local tRoot   = GetRoot(target)
+    if not myRoot or not tRoot then return end
+
+    local dist = (tRoot.Position - myRoot.Position).Magnitude
+
+    pcall(function()
+        -- volar hacia el objetivo
+        myRoot.CFrame = CFrame.new(
+            myRoot.Position:Lerp(tRoot.Position + Vector3.new(0,2,0), 0.4)
+        )
+
+        -- si estamos cerca, firetouchinterest para simular golpe
+        if dist < 12 and hasFTI then
+            firetouchinterest(myRoot, tRoot, 0)
+            task.wait(0.02)
+            firetouchinterest(myRoot, tRoot, 1)
+        end
+
+        -- intentar usar herramienta equipada si el juego tiene bat/weapon
+        local char = LocalPlayer.Character
+        if char then
+            local tool = char:FindFirstChildOfClass("Tool")
+            if tool then
+                local remote = tool:FindFirstChildOfClass("RemoteEvent")
+                    or tool:FindFirstChildOfClass("RemoteFunction")
+                if remote and remote:IsA("RemoteEvent") then
+                    pcall(function() remote:FireServer(tRoot.Position) end)
+                end
+            end
+        end
+    end)
+
+    autoHitCooldown = 0.15
+end
+
+-- =========================================================
+-- INFINITE JUMP — SetStateEnabled bypass
+-- =========================================================
+
+local jumpDb = false
+UserInputService.JumpRequest:Connect(function()
+    if not State.InfJump.Enabled then return end
+    if jumpDb then return end
+    local hum = GetHum(LocalPlayer)
+    if not hum or hum.Health <= 0 then return end
+    jumpDb = true
+    pcall(function()
+        hum:SetStateEnabled(Enum.HumanoidStateType.Landed, false)
+        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+        task.delay(0.1, function()
+            hum:SetStateEnabled(Enum.HumanoidStateType.Landed, true)
+        end)
+    end)
+    task.delay(0.15, function() jumpDb = false end)
+end)
+
+-- =========================================================
+-- HEARTBEAT
+-- =========================================================
+
+RunService.Heartbeat:Connect(function(dt)
+    if State.Speed.Enabled and not State.Fly.Enabled then
+        ApplySpeedBV()
+    elseif not State.Speed.Enabled and SpeedBV then
+        RemoveSpeedBV()
+    end
+
+    if State.Fly.Enabled then
+        ApplyFly()
+    elseif FlyBV then
+        RemoveFly()
+    end
+
+    ApplyAntiRagdoll()
+    TryAutoSteal(dt)
+
+    TargetAccumulator += dt
+    if TargetAccumulator >= TARGET_UPDATE_RATE then
+        TargetAccumulator = 0
+        UpdateTarget()
+    end
+
+    if State.Aimbot.Enabled and CurrentTarget then
+        UpdateAimbot(CurrentTarget, dt)
+    end
+    if State.AutoHit.Enabled and CurrentTarget then
+        TryAutoHit(CurrentTarget, dt)
+    end
+end)
+
+-- =========================================================
+-- CHARACTER / PLAYER EVENTS
+-- =========================================================
+
+local function OnCharAdded(player)
+    OriginalSizes[player] = nil
+    task.delay(0.5, function()
+        if not player.Parent or not player.Character then return end
+        if State.Hitbox.Enabled then ApplyHitbox(player) end
+        if State.ESP.Enabled    then AddESP(player)      end
+    end)
+end
+
+local function SetupPlayer(player)
+    if player == LocalPlayer or PlayerConnections[player] then return end
+    local c = {}
+    PlayerConnections[player] = c
+    c.ca = player.CharacterAdded:Connect(function()   OnCharAdded(player) end)
+    c.cr = player.CharacterRemoving:Connect(function(char)
+        local e = ESPObjects[player]
+        if e and e.Adornee == char then RemoveESP(player) end
+        OriginalSizes[player]   = nil
+        SavedMotor6Ds[char]     = nil
+    end)
+    if player.Character then task.defer(function() OnCharAdded(player) end) end
+end
+
+local function CleanupPlayer(player)
+    RemoveESP(player)
+    local r = GetRoot(player); local o = OriginalSizes[player]
+    if r and o then pcall(function() r.Size = o end) end
+    OriginalSizes[player] = nil
+    local c = PlayerConnections[player]
+    if c then for _, v in pairs(c) do pcall(function() v:Disconnect() end) end end
+    PlayerConnections[player] = nil
+    if CurrentTarget == player then CurrentTarget = nil end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do SetupPlayer(p) end
+Players.PlayerAdded:Connect(SetupPlayer)
+Players.PlayerRemoving:Connect(CleanupPlayer)
+
+LocalPlayer.CharacterAdded:Connect(function(char)
+    SavedMotor6Ds = {}
+    SpeedBV = nil; FlyBV = nil; FlyBG = nil
+    task.wait(0.5)
+    SaveMotors(char)
+    if State.Speed.Enabled then ApplySpeedBV() end
+end)
+
+-- =========================================================
+-- GUI PARENT
+-- =========================================================
+
+ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name           = GUI_NAME
+ScreenGui.ResetOnSpawn   = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+ScreenGui.IgnoreGuiInset = true
+
+if hasGetHui then
+    pcall(function() ScreenGui.Parent = gethui() end)
+elseif hasProtectGui then
+    pcall(function()
+        protect_gui(ScreenGui)
+        ScreenGui.Parent = game:GetService("CoreGui")
+    end)
+else
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- =========================================================
+-- GUI — DISEÑO REDISEÑADO
+-- Fondo oscuro profundo, accent morado-rosa, iconos en tabs,
+-- cards con glow, secciones con dividers, colores más vivos.
+-- =========================================================
+
+local ACCENT   = Color3.fromRGB(160, 60, 255)
+local ACCENT2  = Color3.fromRGB(255, 60, 150)
+local BG_DEEP  = Color3.fromRGB(8,   6,  18)
+local BG_CARD  = Color3.fromRGB(18,  14, 35)
+local BG_ROW   = Color3.fromRGB(24,  18, 45)
+local BG_DARK  = Color3.fromRGB(12,  9,  25)
+local TEXT_1   = Color3.fromRGB(245, 235, 255)
+local TEXT_2   = Color3.fromRGB(160, 130, 200)
+local TEXT_DIM = Color3.fromRGB(100,  80, 140)
+local ON_COLOR = Color3.fromRGB(130,  60, 255)
+local OFF_CLR  = Color3.fromRGB(40,   32,  70)
+
+Main = Instance.new("Frame")
+Main.Name             = "Main"
+Main.Parent           = ScreenGui
+Main.Size             = UDim2.new(0, 520, 0, 700)
+Main.Position         = UDim2.new(0.5, -260, 1.5, 0)
+Main.BackgroundColor3 = BG_DEEP
+Main.BorderSizePixel  = 0
+Main.ClipsDescendants = true
+Instance.new("UICorner", Main).CornerRadius = UDim.new(0, 18)
+
+-- Outer glow via UIStroke
+local Stroke = Instance.new("UIStroke", Main)
+Stroke.Thickness = 1.5
+Stroke.Color     = ACCENT
+Stroke.Transparency = 0.2
+
+-- Background gradient
+local BGf = Instance.new("Frame", Main)
+BGf.Size = UDim2.fromScale(1,1); BGf.BorderSizePixel = 0
+BGf.BackgroundColor3 = BG_DEEP; BGf.ZIndex = 0
+local BGg = Instance.new("UIGradient", BGf)
+BGg.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(14, 10, 30)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(10,  7, 22)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(6,   4, 14)),
+})
+BGg.Rotation = 145
+
+-- Header
+local Header = Instance.new("Frame", Main)
+Header.Size = UDim2.new(1,0,0,72); Header.Position = UDim2.new(0,0,0,0)
+Header.BackgroundColor3 = BG_DARK; Header.BorderSizePixel = 0; Header.ZIndex = 2
+Instance.new("UICorner", Header).CornerRadius = UDim.new(0, 18)
+local HFix = Instance.new("Frame", Header)
+HFix.Size = UDim2.new(1,0,0,18); HFix.Position = UDim2.new(0,0,1,-18)
+HFix.BackgroundColor3 = BG_DARK; HFix.BorderSizePixel = 0; HFix.ZIndex = 2
+local HG = Instance.new("UIGradient", Header)
+HG.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0,   Color3.fromRGB(100, 30, 220)),
+    ColorSequenceKeypoint.new(0.4, Color3.fromRGB(160, 50, 255)),
+    ColorSequenceKeypoint.new(0.7, Color3.fromRGB(200, 60, 180)),
+    ColorSequenceKeypoint.new(1,   Color3.fromRGB(80, 100, 255)),
+})
+HG.Rotation = 90
+
+-- Title
+local TitleLbl = Instance.new("TextLabel", Header)
+TitleLbl.Size = UDim2.new(1,-120,0,46); TitleLbl.Position = UDim2.new(0,16,0,4)
+TitleLbl.BackgroundTransparency = 1; TitleLbl.Text = "✦  dbgoon22  ✦"
+TitleLbl.Font = Enum.Font.GothamBold; TitleLbl.TextSize = 26
+TitleLbl.TextColor3 = Color3.fromRGB(255,255,255)
+TitleLbl.TextStrokeTransparency = 0.4; TitleLbl.TextStrokeColor3 = ACCENT
+TitleLbl.TextXAlignment = Enum.TextXAlignment.Left; TitleLbl.ZIndex = 3
+
+local SubLbl = Instance.new("TextLabel", Header)
+SubLbl.Size = UDim2.new(1,-16,0,18); SubLbl.Position = UDim2.new(0,16,0,50)
+SubLbl.BackgroundTransparency = 1
+SubLbl.Text = "Steal a Brainrot  ·  v3.0  ·  [RightShift] ocultar"
+SubLbl.Font = Enum.Font.Gotham; SubLbl.TextSize = 11
+SubLbl.TextColor3 = Color3.fromRGB(200,170,255)
+SubLbl.TextXAlignment = Enum.TextXAlignment.Left; SubLbl.ZIndex = 3
+
+-- Badge top-right
+local Badge = Instance.new("TextLabel", Header)
+Badge.Size = UDim2.new(0,90,0,26); Badge.Position = UDim2.new(1,-102,0,20)
+Badge.BackgroundColor3 = Color3.fromRGB(30,20,60); Badge.BorderSizePixel = 0
+Badge.Text = "🧠 SAB"; Badge.Font = Enum.Font.GothamBold; Badge.TextSize = 12
+Badge.TextColor3 = ACCENT2; Badge.ZIndex = 4
+Instance.new("UICorner", Badge).CornerRadius = UDim.new(0,8)
+
+-- Drag
+local drag, dragSt, startPos = false, nil, nil
+Header.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        drag = true; dragSt = i.Position; startPos = Main.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if drag and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local d = i.Position - dragSt
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X,
+                                   startPos.Y.Scale, startPos.Y.Offset+d.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then drag = false end
+end)
+
+UserInputService.InputBegan:Connect(function(i, gp)
+    if gp then return end
+    if i.KeyCode == Enum.KeyCode.RightShift then
+        GuiVisible = not GuiVisible; Main.Visible = GuiVisible
+    end
+end)
+
+-- =========================================================
+-- TABS
+-- =========================================================
+
+local TabBar = Instance.new("Frame", Main)
+TabBar.Size = UDim2.new(1,-20,0,38); TabBar.Position = UDim2.new(0,10,0,78)
+TabBar.BackgroundColor3 = BG_DARK; TabBar.BorderSizePixel = 0; TabBar.ZIndex = 3
+Instance.new("UICorner", TabBar).CornerRadius = UDim.new(0,12)
+local TabLayout = Instance.new("UIListLayout", TabBar)
+TabLayout.FillDirection = Enum.FillDirection.Horizontal
+TabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+TabLayout.VerticalAlignment   = Enum.VerticalAlignment.Center
+TabLayout.Padding = UDim.new(0,5)
+
+local Pages = Instance.new("Frame", Main)
+Pages.Size = UDim2.new(1,-20,1,-128); Pages.Position = UDim2.new(0,10,0,124)
+Pages.BackgroundTransparency = 1; Pages.ZIndex = 2; Pages.ClipsDescendants = true
+
+local TabButtons = {}
+local PageFrames = {}
+
+local function CreatePage(name)
+    local sc = Instance.new("ScrollingFrame", Pages)
+    sc.Name = name.."P"; sc.Size = UDim2.fromScale(1,1)
+    sc.BackgroundTransparency = 1; sc.BorderSizePixel = 0
+    sc.ScrollBarThickness = 4
+    sc.ScrollBarImageColor3 = ACCENT
+    sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    sc.CanvasSize = UDim2.new(0,0,0,0)
+    sc.Visible = false; sc.ZIndex = 3
+    local lay = Instance.new("UIListLayout", sc)
+    lay.Padding = UDim.new(0,7); lay.SortOrder = Enum.SortOrder.LayoutOrder
+    local pad = Instance.new("UIPadding", sc)
+    pad.PaddingTop = UDim.new(0,8); pad.PaddingLeft = UDim.new(0,4)
+    pad.PaddingRight = UDim.new(0,4); pad.PaddingBottom = UDim.new(0,10)
+    PageFrames[name] = sc
+    return sc
+end
+
+local function SetTab(name)
+    for n, p in pairs(PageFrames)  do p.Visible = n == name end
+    for n, b in pairs(TabButtons)  do
+        local a = n == name
+        b.BackgroundColor3 = a and ACCENT or Color3.fromRGB(28,22,52)
+        b.TextColor3       = a and Color3.fromRGB(255,255,255) or TEXT_DIM
+    end
+end
+
+local function MakeTab(name, icon)
+    local btn = Instance.new("TextButton", TabBar)
+    btn.Size = UDim2.new(0,110,0,30); btn.BackgroundColor3 = Color3.fromRGB(28,22,52)
+    btn.BorderSizePixel = 0; btn.Text = icon.."  "..name
+    btn.Font = Enum.Font.GothamBold; btn.TextSize = 12
+    btn.TextColor3 = TEXT_DIM; btn.ZIndex = 4
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0,9)
+    TabButtons[name] = btn
+    btn.MouseButton1Click:Connect(function() SetTab(name) end)
+end
+
+-- =========================================================
+-- COMPONENTS
+-- =========================================================
+
+local function Divider(parent, order)
+    local d = Instance.new("Frame", parent)
+    d.Size = UDim2.new(1,-8,0,1); d.BackgroundColor3 = Color3.fromRGB(50,35,80)
+    d.BorderSizePixel = 0; d.LayoutOrder = order; d.ZIndex = 4
+    return d
+end
+
+local function SectionLabel(parent, text, icon, order)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1,0,0,28); row.BackgroundTransparency = 1
+    row.BorderSizePixel = 0; row.LayoutOrder = order; row.ZIndex = 4
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.fromScale(1,1); lbl.BackgroundTransparency = 1
+    lbl.Text = "  "..icon.."  "..text
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 12
+    lbl.TextColor3 = ACCENT2
+    lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.ZIndex = 5
+    return row
+end
+
+local function Toggle(parent, label, desc, order, callback)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1,0,0,56); row.BackgroundColor3 = BG_ROW
+    row.BorderSizePixel = 0; row.LayoutOrder = order; row.ZIndex = 4
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,12)
+
+    -- left accent bar
+    local bar = Instance.new("Frame", row)
+    bar.Size = UDim2.new(0,3,0,36); bar.Position = UDim2.new(0,0,0.5,-18)
+    bar.BackgroundColor3 = ACCENT; bar.BorderSizePixel = 0; bar.ZIndex = 6
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1,0)
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(1,-80,0,24); lbl.Position = UDim2.new(0,14,0,7)
+    lbl.BackgroundTransparency = 1; lbl.Text = label
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 14
+    lbl.TextColor3 = TEXT_1; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.ZIndex = 5
+
+    if desc then
+        local sub = Instance.new("TextLabel", row)
+        sub.Size = UDim2.new(1,-80,0,16); sub.Position = UDim2.new(0,14,0,32)
+        sub.BackgroundTransparency = 1; sub.Text = desc
+        sub.Font = Enum.Font.Gotham; sub.TextSize = 11
+        sub.TextColor3 = TEXT_DIM; sub.TextXAlignment = Enum.TextXAlignment.Left; sub.ZIndex = 5
+    end
+
+    local bg = Instance.new("Frame", row)
+    bg.Size = UDim2.new(0,46,0,24); bg.Position = UDim2.new(1,-58,0.5,-12)
+    bg.BackgroundColor3 = OFF_CLR; bg.BorderSizePixel = 0; bg.ZIndex = 5
+    Instance.new("UICorner", bg).CornerRadius = UDim.new(1,0)
+
+    local dot = Instance.new("Frame", bg)
+    dot.Size = UDim2.new(0,18,0,18); dot.Position = UDim2.new(0,3,0.5,-9)
+    dot.BackgroundColor3 = Color3.fromRGB(160,130,210); dot.BorderSizePixel = 0; dot.ZIndex = 6
+    Instance.new("UICorner", dot).CornerRadius = UDim.new(1,0)
+
+    local enabled = false
+    local function SetState(v, inv)
+        enabled = v == true
+        TweenService:Create(bg, TweenInfo.new(0.18), {
+            BackgroundColor3 = enabled and ON_COLOR or OFF_CLR
+        }):Play()
+        TweenService:Create(dot, TweenInfo.new(0.18), {
+            Position = enabled and UDim2.new(0,25,0.5,-9) or UDim2.new(0,3,0.5,-9),
+            BackgroundColor3 = enabled and Color3.fromRGB(255,255,255) or Color3.fromRGB(160,130,210)
+        }):Play()
+        TweenService:Create(bar, TweenInfo.new(0.18), {
+            BackgroundColor3 = enabled and ACCENT2 or ACCENT
+        }):Play()
+        if inv ~= false then callback(enabled) end
+    end
+
+    bg.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then SetState(not enabled) end
+    end)
+    return { Set=function(v) SetState(v) end, Get=function() return enabled end }
+end
+
+local function NumberBox(parent, label, desc, order, def, mn, mx, cb)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1,0,0,62); row.BackgroundColor3 = BG_ROW
+    row.BorderSizePixel = 0; row.LayoutOrder = order; row.ZIndex = 4
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,12)
+
+    local bar = Instance.new("Frame", row)
+    bar.Size = UDim2.new(0,3,0,38); bar.Position = UDim2.new(0,0,0.5,-19)
+    bar.BackgroundColor3 = ACCENT2; bar.BorderSizePixel = 0; bar.ZIndex = 6
+    Instance.new("UICorner", bar).CornerRadius = UDim.new(1,0)
+
+    local t = Instance.new("TextLabel", row)
+    t.Size = UDim2.new(1,-140,0,24); t.Position = UDim2.new(0,14,0,8)
+    t.BackgroundTransparency = 1; t.Text = label
+    t.Font = Enum.Font.GothamBold; t.TextSize = 14
+    t.TextColor3 = TEXT_1; t.TextXAlignment = Enum.TextXAlignment.Left; t.ZIndex = 5
+
+    local s = Instance.new("TextLabel", row)
+    s.Size = UDim2.new(1,-140,0,16); s.Position = UDim2.new(0,14,0,34)
+    s.BackgroundTransparency = 1; s.Text = desc
+    s.Font = Enum.Font.Gotham; s.TextSize = 11
+    s.TextColor3 = TEXT_DIM; s.TextXAlignment = Enum.TextXAlignment.Left; s.ZIndex = 5
+
+    local box = Instance.new("TextBox", row)
+    box.Size = UDim2.new(0,88,0,34); box.Position = UDim2.new(1,-100,0.5,-17)
+    box.BackgroundColor3 = BG_DARK; box.BorderSizePixel = 0
+    box.Text = tostring(def); box.Font = Enum.Font.GothamBold; box.TextSize = 14
+    box.TextColor3 = Color3.fromRGB(255,255,255); box.ClearTextOnFocus = false; box.ZIndex = 5
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0,8)
+    local bs = Instance.new("UIStroke", box); bs.Thickness = 1.2; bs.Color = ACCENT; bs.Transparency = 0.6
+
+    local function Apply()
+        local v = math.clamp(math.floor(SafeNum(box.Text, def)), mn, mx)
+        box.Text = tostring(v); cb(v); return v
+    end
+    box.FocusLost:Connect(Apply)
+    return { Apply=Apply, Box=box }
+end
+
+-- =========================================================
+-- KEYBIND ROW component
+-- =========================================================
+
+local function KeybindRow(parent, label, keyName, order)
+    local row = Instance.new("Frame", parent)
+    row.Size = UDim2.new(1,0,0,48); row.BackgroundColor3 = BG_ROW
+    row.BorderSizePixel = 0; row.LayoutOrder = order; row.ZIndex = 4
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0,12)
+
+    local lbl = Instance.new("TextLabel", row)
+    lbl.Size = UDim2.new(0.6,0,1,0); lbl.Position = UDim2.new(0,14,0,0)
+    lbl.BackgroundTransparency = 1; lbl.Text = label
+    lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 13
+    lbl.TextColor3 = TEXT_1; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.ZIndex = 5
+
+    local kbtn = Instance.new("TextButton", row)
+    kbtn.Size = UDim2.new(0,90,0,30); kbtn.Position = UDim2.new(1,-102,0.5,-15)
+    kbtn.BackgroundColor3 = BG_DARK; kbtn.BorderSizePixel = 0
+    kbtn.Text = "["..keyName.."]"; kbtn.Font = Enum.Font.GothamBold; kbtn.TextSize = 12
+    kbtn.TextColor3 = ACCENT; kbtn.ZIndex = 5
+    Instance.new("UICorner", kbtn).CornerRadius = UDim.new(0,8)
+    local ks = Instance.new("UIStroke", kbtn); ks.Thickness = 1; ks.Color = ACCENT; ks.Transparency = 0.5
+
+    return row, kbtn
+end
+
+-- =========================================================
+-- BUILD TABS
+-- =========================================================
+
+MakeTab("Combat",   "⚔️")
+MakeTab("Movement", "💨")
+MakeTab("Defense",  "🛡️")
+MakeTab("Keybinds", "⌨️")
+
+local CombatPage   = CreatePage("Combat")
+local MovementPage = CreatePage("Movement")
+local DefensePage  = CreatePage("Defense")
+local KeybindPage  = CreatePage("Keybinds")
+
+-- ─── COMBAT ──────────────────────────────────────────────
+
+SectionLabel(CombatPage, "AUTO STEAL", "🧠", 10)
+
+local stealHolder = { state = State.AutoSteal }
+stealHolder.toggle = Toggle(CombatPage, "Auto Steal",
+    "Teleport + touch brainrots enemigos", 11,
+    function(en) State.AutoSteal.Enabled = en end)
+
+NumberBox(CombatPage, "Cooldown (s)", "Intervalo entre robos", 12,
+    State.AutoSteal.Cooldown * 10, 1, 30,
+    function(v) State.AutoSteal.Cooldown = v / 10 end)
+
+Divider(CombatPage, 19)
+SectionLabel(CombatPage, "COMBATE", "💥", 20)
+
+local autoHitHolder = { state = State.AutoHit }
+autoHitHolder.toggle = Toggle(CombatPage, "Auto Hit",
+    "Vuela al jugador y golpea automáticamente", 21,
+    function(en)
+        State.AutoHit.Enabled = en
+        if not en and not State.Aimbot.Enabled then CurrentTarget = nil end
+    end)
+
+local aimHolder = { state = State.Aimbot }
+aimHolder.toggle = Toggle(CombatPage, "Aimbot",
+    "Bloquea cámara al objetivo más cercano", 22,
+    function(en)
+        State.Aimbot.Enabled = en
+        if not en and not State.AutoHit.Enabled then CurrentTarget = nil end
+    end)
+
+Divider(CombatPage, 29)
+SectionLabel(CombatPage, "VISIÓN", "👁️", 30)
+
+local espHolder = { state = State.ESP }
+espHolder.toggle = Toggle(CombatPage, "ESP",
+    "Highlight jugadores (nombre random)", 31,
+    function(en) State.ESP.Enabled = en; RefreshESP() end)
+
+local hbHolder = { state = State.Hitbox }
+hbHolder.toggle = Toggle(CombatPage, "Hitbox Expand",
+    "Agranda hitbox enemigos (local, bypass seti)", 32,
+    function(en) State.Hitbox.Enabled = en; SetAllHitboxes(en) end)
+
+NumberBox(CombatPage, "Hitbox Size", "Tamaño: 1-100", 33,
+    State.Hitbox.Size, 1, 100,
+    function(v) State.Hitbox.Size = v; UpdateHitboxSize() end)
+
+-- ─── MOVEMENT ────────────────────────────────────────────
+
+SectionLabel(MovementPage, "VELOCIDAD", "⚡", 10)
+
+local speedHolder = { state = State.Speed }
+speedHolder.toggle = Toggle(MovementPage, "Speed — BodyVelocity",
+    "BodyVelocity bypass (WalkSpeed queda en 16 al server)", 11,
+    function(en)
+        State.Speed.Enabled = en
+        if not en then RemoveSpeedBV() end
+    end)
+
+NumberBox(MovementPage, "Speed Value", "Velocidad: 1-500", 12,
+    State.Speed.Value, 1, 500,
+    function(v) State.Speed.Value = v end)
+
+Divider(MovementPage, 19)
+SectionLabel(MovementPage, "SALTO", "🚀", 20)
+
+local infJumpHolder = { state = State.InfJump }
+infJumpHolder.toggle = Toggle(MovementPage, "Infinite Jump",
+    "SetStateEnabled(Landed,false) bypass", 21,
+    function(en) State.InfJump.Enabled = en end)
+
+Divider(MovementPage, 29)
+SectionLabel(MovementPage, "VUELO", "🦋", 30)
+
+local flyHolder = { state = State.Fly }
+flyHolder.toggle = Toggle(MovementPage, "Fly",
+    "BodyGyro + BodyVelocity — WASD + Space/Ctrl", 31,
+    function(en)
+        State.Fly.Enabled = en
+        if not en then RemoveFly() end
+    end)
+
+NumberBox(MovementPage, "Fly Speed", "Velocidad de vuelo: 1-300", 32,
+    State.Fly.Speed, 1, 300,
+    function(v) State.Fly.Speed = v end)
+
+-- ─── DEFENSE ─────────────────────────────────────────────
+
+SectionLabel(DefensePage, "PROTECCIÓN", "🛡️", 10)
+
+local arHolder = { state = State.AntiRagdoll }
+arHolder.toggle = Toggle(DefensePage, "Anti Ragdoll",
+    "Motor6D restore + kill constraints + GettingUp", 11,
+    function(en)
+        State.AntiRagdoll.Enabled = en
+        if en then SaveMotors(LocalPlayer.Character) end
+    end)
+
+-- ─── KEYBINDS ────────────────────────────────────────────
+
+SectionLabel(KeybindPage, "KEYBINDS", "⌨️", 0)
+
+local keybindDefs = {
+    { label="Auto Steal",    key="Z",   code=Enum.KeyCode.Z,   holder=stealHolder   },
+    { label="Auto Hit",      key="G",   code=Enum.KeyCode.G,   holder=autoHitHolder },
+    { label="Aimbot",        key="F",   code=Enum.KeyCode.F,   holder=aimHolder     },
+    { label="ESP",           key="E",   code=Enum.KeyCode.E,   holder=espHolder     },
+    { label="Hitbox",        key="H",   code=Enum.KeyCode.H,   holder=hbHolder      },
+    { label="Speed",         key="X",   code=Enum.KeyCode.X,   holder=speedHolder   },
+    { label="Infinite Jump", key="J",   code=Enum.KeyCode.J,   holder=infJumpHolder },
+    { label="Fly",           key="V",   code=Enum.KeyCode.V,   holder=flyHolder     },
+    { label="Anti Ragdoll",  key="R",   code=Enum.KeyCode.R,   holder=arHolder      },
+}
+
+for i, def in ipairs(keybindDefs) do
+    KeybindRow(KeybindPage, def.label, def.key, i)
+    table.insert(Keybinds, def)
+end
+
+-- ─── KEYBIND INPUT ───────────────────────────────────────
+
+UserInputService.InputBegan:Connect(function(i, gp)
+    if gp then return end
+    if i.UserInputType ~= Enum.UserInputType.Keyboard then return end
+    for _, bind in ipairs(Keybinds) do
+        if i.KeyCode == bind.code then
+            local h = bind.holder
+            if h and h.toggle then h.toggle.Set(not h.toggle.Get()) end
+            break
+        end
+    end
+end)
+
+-- =========================================================
+-- INITIALIZE
+-- =========================================================
+
+SetTab("Combat")
+
+TweenService:Create(Main, TweenInfo.new(0.55, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+    Position = UDim2.new(0.5, -260, 0.5, -350)
+}):Play()
+
+print("[dbgoon22 v3.0 SAB] loaded | GUI: "..GUI_NAME)
+ENDOFFILE
+echo "done"
+Salida
+
+done
